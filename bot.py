@@ -82,7 +82,7 @@ async def backfill_channel(channel):
     return added
 
 
-def build_quote_book_text(quotes):
+def build_quote_book_text(quotes, guild=None):
     names = load_names()
     lines = []
     i = 0
@@ -92,7 +92,12 @@ def build_quote_book_text(quotes):
             continue
         quote_text, attribution_name, attribution_id = parsed
         if attribution_id is not None:
-            who = names.get(str(attribution_id), f"<@{attribution_id}>")
+            who = names.get(str(attribution_id))
+            if who is None and guild is not None:
+                member = guild.get_member(attribution_id)
+                who = member.display_name if member else None
+            if who is None:
+                who = f"<@{attribution_id}>"
         else:
             who = attribution_name
 
@@ -152,7 +157,7 @@ async def sync_quotes(ctx):
 @commands.has_permissions(manage_messages=True)
 async def quotebook(ctx):
     quotes = load_quotes()
-    text = build_quote_book_text(quotes)
+    text = build_quote_book_text(quotes, guild=ctx.guild)
     buffer = io.BytesIO(text.encode("utf-8"))
     await ctx.reply(
         content=f"Here's the compiled quote book ({len(quotes)} quotes).",
