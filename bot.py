@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from quote_parser import parse_quote
+from quote_parser import MENTION_RE, parse_quote, parse_quotes
 
 load_dotenv()
 
@@ -82,31 +82,40 @@ async def backfill_channel(channel):
     return added
 
 
+def resolve_user_id(user_id, names, guild):
+    who = names.get(str(user_id))
+    if who is None and guild is not None:
+        member = guild.get_member(user_id)
+        who = member.display_name if member else None
+    return who if who is not None else f"<@{user_id}>"
+
+
+def resolve_mentions_in_text(text, names, guild):
+    return MENTION_RE.sub(lambda m: resolve_user_id(int(m.group(1)), names, guild), text)
+
+
+def resolve_attribution(attribution_name, attribution_id, names, guild):
+    if attribution_id is None:
+        return attribution_name
+    who = resolve_user_id(attribution_id, names, guild)
+    if attribution_name:
+        leftover = resolve_mentions_in_text(attribution_name, names, guild)
+        who = f"{who} {leftover}"
+    return who
+
+
 def build_quote_book_text(quotes, guild=None):
     names = load_names()
     lines = []
     i = 0
     for q in sorted(quotes, key=lambda x: x["timestamp"]):
-        parsed = parse_quote(q.get("content", ""))
-        if parsed is None:
-            continue
-        quote_text, attribution_name, attribution_id = parsed
-        if attribution_id is not None:
-            who = names.get(str(attribution_id))
-            if who is None and guild is not None:
-                member = guild.get_member(attribution_id)
-                who = member.display_name if member else None
-            if who is None:
-                who = f"<@{attribution_id}>"
-            if attribution_name:
-                who = f"{who} {attribution_name}"
-        else:
-            who = attribution_name
-
-        i += 1
         dt = datetime.fromisoformat(q["timestamp"]).strftime("%B %d, %Y")
-        lines.append(f'{i}. "{quote_text}" — {who} ({dt})')
-        lines.append("")
+        for quote_text, attribution_name, attribution_id in parse_quotes(q.get("content", "")):
+            quote_text = resolve_mentions_in_text(quote_text, names, guild)
+            who = resolve_attribution(attribution_name, attribution_id, names, guild)
+            i += 1
+            lines.append(f'{i}. "{quote_text}" — {who} ({dt})')
+            lines.append("")
     return "\n".join(lines) if lines else "No formatted quotes found yet."
 
 
