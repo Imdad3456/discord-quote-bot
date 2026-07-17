@@ -116,7 +116,8 @@ def build_quote_book_text(quotes, guild=None):
             i += 1
             lines.append(f'{i}. "{quote_text}" — {who} ({dt})')
             lines.append("")
-    return "\n".join(lines) if lines else "No formatted quotes found yet."
+    text = "\n".join(lines) if lines else "No formatted quotes found yet."
+    return text, i
 
 
 @bot.event
@@ -168,10 +169,10 @@ async def sync_quotes(ctx):
 @commands.has_permissions(manage_messages=True)
 async def quotebook(ctx):
     quotes = load_quotes()
-    text = build_quote_book_text(quotes, guild=ctx.guild)
+    text, count = build_quote_book_text(quotes, guild=ctx.guild)
     buffer = io.BytesIO(text.encode("utf-8"))
     await ctx.reply(
-        content=f"Here's the compiled quote book ({len(quotes)} quotes).",
+        content=f"Here's the compiled quote book ({count} quotes).",
         file=discord.File(buffer, filename="quote_book.txt"),
     )
 
