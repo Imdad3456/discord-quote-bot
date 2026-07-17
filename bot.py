@@ -131,7 +131,8 @@ async def on_message(message):
             if message.id not in {q["id"] for q in quotes}:
                 quotes.append(build_entry(message))
                 write_quotes(quotes)
-                await message.add_reaction("\U0001F4DD")  # 📝
+                if parse_quote(message.content) is not None:
+                    await message.add_reaction("\U0001F4DD")  # 📝
 
     await bot.process_commands(message)
 
@@ -166,6 +167,29 @@ async def setname(ctx, member: discord.Member, *, real_name: str):
     names[str(member.id)] = real_name
     write_names(names)
     await ctx.reply(f"Mapped {member.mention} → {real_name}")
+
+
+@bot.command(name="importnames")
+@commands.has_permissions(manage_messages=True)
+async def import_names(ctx):
+    if not ctx.message.attachments:
+        await ctx.reply("Attach a names.json file with this command (author_id -> name mapping).")
+        return
+
+    raw = await ctx.message.attachments[0].read()
+    try:
+        incoming = json.loads(raw)
+    except json.JSONDecodeError:
+        await ctx.reply("That attachment isn't valid JSON.")
+        return
+    if not isinstance(incoming, dict):
+        await ctx.reply("Expected a JSON object of author_id -> name.")
+        return
+
+    names = load_names()
+    names.update(incoming)
+    write_names(names)
+    await ctx.reply(f"Imported {len(incoming)} mapping(s). names.json now has {len(names)} total.")
 
 
 @bot.command(name="names")
@@ -213,6 +237,7 @@ async def export_nicknames(ctx):
 @sync_quotes.error
 @quotebook.error
 @setname.error
+@import_names.error
 @list_names.error
 @export_nicknames.error
 async def command_error(ctx, error):
