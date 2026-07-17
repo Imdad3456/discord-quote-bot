@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+
+# Real quote/member data - never commit, lives on the Railway volume instead
+quotes.json
+names.json
+nicknames.json
+filtered_quotes.json
+tools/previous_quotebook.json
+tools/suggested_names.json
+tools/match_report.txt
