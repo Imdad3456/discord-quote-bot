@@ -1,0 +1,15 @@
+[Unit]
+Description=Discord Quote Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botuser
+WorkingDirectory=/home/botuser/discord-quote-bot
+ExecStart=/usr/bin/python3 /home/botuser/discord-quote-bot/bot.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
