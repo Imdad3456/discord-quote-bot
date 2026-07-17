@@ -98,6 +98,8 @@ def build_quote_book_text(quotes, guild=None):
                 who = member.display_name if member else None
             if who is None:
                 who = f"<@{attribution_id}>"
+            if attribution_name:
+                who = f"{who} {attribution_name}"
         else:
             who = attribution_name
 

@@ -23,7 +23,9 @@ def parse_quote(content):
     if not quote or not attribution:
         return None
 
-    mention = MENTION_RE.fullmatch(attribution)
+    mention = MENTION_RE.search(attribution)
     if mention:
-        return quote, None, int(mention.group(1))
+        attribution_id = int(mention.group(1))
+        leftover = (attribution[: mention.start()] + " " + attribution[mention.end() :]).strip()
+        return quote, leftover or None, attribution_id
     return quote, attribution.lstrip("@").strip(), None
