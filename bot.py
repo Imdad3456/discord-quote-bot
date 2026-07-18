@@ -1,13 +1,14 @@
 import io
 import json
 import os
-from datetime import datetime, timezone
+import random
+from datetime import datetime, time, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-from quote_parser import MENTION_RE, parse_quote, parse_quotes
+from quote_parser import MENTION_RE, parse_quotes
 
 load_dotenv()
 
@@ -16,6 +17,10 @@ QUOTES_CHANNEL_ID = int(os.getenv("QUOTES_CHANNEL_ID", "0"))
 QUOTES_FILE = os.getenv("QUOTES_FILE", "quotes.json")
 NAMES_FILE = os.getenv("NAMES_FILE", "names.json")
 NICKNAMES_FILE = os.getenv("NICKNAMES_FILE", "nicknames.json")
+MOD_USER_ID = int(os.getenv("MOD_USER_ID")) if os.getenv("MOD_USER_ID") else None
+QUOTE_OF_DAY_HOUR_UTC = int(os.getenv("QUOTE_OF_DAY_HOUR_UTC", "13"))
+
+QUOTE_REACTION_EMOJI = "\U0001FAC3"  # 🫃 pregnant man
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -104,20 +109,53 @@ def resolve_attribution(attribution_name, attribution_id, names, guild):
     return who
 
 
+def iter_parsed_quotes(quotes):
+    """Yield (message, quote_text, attribution_name, attribution_id) for every
+    formatted quote across all messages, oldest first."""
+    for q in sorted(quotes, key=lambda x: x["timestamp"]):
+        for quote_text, attribution_name, attribution_id in parse_quotes(q.get("content", "")):
+            yield q, quote_text, attribution_name, attribution_id
+
+
+def format_quote_line(q, quote_text, attribution_name, attribution_id, names, guild):
+    dt = datetime.fromisoformat(q["timestamp"]).strftime("%B %d, %Y")
+    quote_text = resolve_mentions_in_text(quote_text, names, guild)
+    who = resolve_attribution(attribution_name, attribution_id, names, guild)
+    return f'"{quote_text}" — {who} ({dt})'
+
+
 def build_quote_book_text(quotes, guild=None):
     names = load_names()
     lines = []
     i = 0
-    for q in sorted(quotes, key=lambda x: x["timestamp"]):
-        dt = datetime.fromisoformat(q["timestamp"]).strftime("%B %d, %Y")
-        for quote_text, attribution_name, attribution_id in parse_quotes(q.get("content", "")):
-            quote_text = resolve_mentions_in_text(quote_text, names, guild)
-            who = resolve_attribution(attribution_name, attribution_id, names, guild)
-            i += 1
-            lines.append(f'{i}. "{quote_text}" — {who} ({dt})')
-            lines.append("")
+    for q, quote_text, attribution_name, attribution_id in iter_parsed_quotes(quotes):
+        i += 1
+        lines.append(f"{i}. " + format_quote_line(q, quote_text, attribution_name, attribution_id, names, guild))
+        lines.append("")
     text = "\n".join(lines) if lines else "No formatted quotes found yet."
     return text, i
+
+
+async def notify_unresolved(message, unresolved_ids):
+    mentions = ", ".join(f"<@{uid}>" for uid in unresolved_ids)
+    text = (
+        f"⚠️ Unresolved quote attribution in {message.jump_url}: {mentions}\n"
+        f"Use `!setname @user Real Name` to map them."
+    )
+    if MOD_USER_ID:
+        user = bot.get_user(MOD_USER_ID)
+        if user is None:
+            try:
+                user = await bot.fetch_user(MOD_USER_ID)
+            except discord.NotFound:
+                user = None
+        if user is not None:
+            try:
+                await user.send(text)
+                return
+            except discord.Forbidden:
+                pass
+    await message.reply(text, mention_author=False)
 
 
 @bot.event
@@ -136,6 +174,9 @@ async def on_ready():
     added = await backfill_channel(channel)
     print(f"Backfill complete: {added} past message(s) added. Watching #{channel.name} for new quotes.")
 
+    if not post_quote_of_the_day.is_running():
+        post_quote_of_the_day.start()
+
 
 @bot.event
 async def on_message(message):
@@ -148,10 +189,32 @@ async def on_message(message):
             if message.id not in {q["id"] for q in quotes}:
                 quotes.append(build_entry(message))
                 write_quotes(quotes)
-                if parse_quote(message.content) is not None:
-                    await message.add_reaction("\U0001F4DD")  # 📝
+                parsed = parse_quotes(message.content)
+                if parsed:
+                    await message.add_reaction(QUOTE_REACTION_EMOJI)
+                    names = load_names()
+                    unresolved = sorted(
+                        {aid for _, _, aid in parsed if aid is not None and str(aid) not in names}
+                    )
+                    if unresolved:
+                        await notify_unresolved(message, unresolved)
 
     await bot.process_commands(message)
+
+
+@tasks.loop(time=time(hour=QUOTE_OF_DAY_HOUR_UTC, tzinfo=timezone.utc))
+async def post_quote_of_the_day():
+    channel = bot.get_channel(QUOTES_CHANNEL_ID)
+    if channel is None:
+        return
+    quotes = load_quotes()
+    parsed = list(iter_parsed_quotes(quotes))
+    if not parsed:
+        return
+    q, quote_text, attribution_name, attribution_id = random.choice(parsed)
+    names = load_names()
+    line = format_quote_line(q, quote_text, attribution_name, attribution_id, names, channel.guild)
+    await channel.send(f"**Quote of the Day**\n{line}")
 
 
 @bot.command(name="sync")
@@ -175,6 +238,35 @@ async def quotebook(ctx):
         content=f"Here's the compiled quote book ({count} quotes).",
         file=discord.File(buffer, filename="quote_book.txt"),
     )
+
+
+@bot.command(name="randomquote")
+async def random_quote(ctx):
+    quotes = load_quotes()
+    parsed = list(iter_parsed_quotes(quotes))
+    if not parsed:
+        await ctx.reply("No formatted quotes found yet.")
+        return
+    q, quote_text, attribution_name, attribution_id = random.choice(parsed)
+    names = load_names()
+    line = format_quote_line(q, quote_text, attribution_name, attribution_id, names, ctx.guild)
+    await ctx.send(line)
+
+
+@bot.command(name="topquoted")
+async def top_quoted(ctx, top_n: int = 10):
+    quotes = load_quotes()
+    names = load_names()
+    counts = {}
+    for q, quote_text, attribution_name, attribution_id in iter_parsed_quotes(quotes):
+        who = resolve_attribution(attribution_name, attribution_id, names, ctx.guild)
+        counts[who] = counts.get(who, 0) + 1
+    if not counts:
+        await ctx.reply("No formatted quotes found yet.")
+        return
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    lines = [f"{idx}. {name} — {count} quote(s)" for idx, (name, count) in enumerate(ranked, start=1)]
+    await ctx.reply("**Most Quoted:**\n" + "\n".join(lines))
 
 
 @bot.command(name="setname")
