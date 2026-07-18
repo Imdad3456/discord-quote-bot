@@ -19,6 +19,7 @@ NAMES_FILE = os.getenv("NAMES_FILE", "names.json")
 NICKNAMES_FILE = os.getenv("NICKNAMES_FILE", "nicknames.json")
 MOD_USER_ID = int(os.getenv("MOD_USER_ID")) if os.getenv("MOD_USER_ID") else None
 QUOTE_OF_DAY_HOUR_UTC = int(os.getenv("QUOTE_OF_DAY_HOUR_UTC", "13"))
+ANNOUNCEMENTS_CHANNEL_ID = int(os.getenv("ANNOUNCEMENTS_CHANNEL_ID", "0")) or QUOTES_CHANNEL_ID
 
 QUOTE_REACTION_EMOJI = "\U0001FAC3"  # 🫃 pregnant man
 
@@ -204,7 +205,7 @@ async def on_message(message):
 
 @tasks.loop(time=time(hour=QUOTE_OF_DAY_HOUR_UTC, tzinfo=timezone.utc))
 async def post_quote_of_the_day():
-    channel = bot.get_channel(QUOTES_CHANNEL_ID)
+    channel = bot.get_channel(ANNOUNCEMENTS_CHANNEL_ID)
     if channel is None:
         return
     quotes = load_quotes()
