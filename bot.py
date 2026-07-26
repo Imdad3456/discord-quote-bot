@@ -291,10 +291,10 @@ async def quote_card_command(ctx, *, override_text: str = None):
         return
 
     author = target.author
+    names = load_names()
+    who = names.get(str(author.id)) or author.display_name
     avatar_bytes = await author.display_avatar.replace(size=256, format="png").read()
-    buffer = await asyncio.to_thread(
-        render_quote_card, text, author.display_name, str(author), avatar_bytes
-    )
+    buffer = await asyncio.to_thread(render_quote_card, text, who, avatar_bytes)
     await ctx.reply(file=discord.File(buffer, filename="quote_card.png"))
 
 

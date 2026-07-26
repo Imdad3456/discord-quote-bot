@@ -15,7 +15,6 @@ TEXT_BOX = (80, 80, WIDTH - AVATAR_WIDTH - 60, HEIGHT - 80)  # left, top, right,
 BG_COLOR = (0, 0, 0)
 TEXT_COLOR = (235, 235, 235)
 NAME_COLOR = (235, 235, 235)
-HANDLE_COLOR = (150, 150, 150)
 
 
 def _wrap_text(draw, text, font, max_width):
@@ -70,7 +69,7 @@ def _prep_avatar(avatar_bytes, box_width, box_height):
     return avatar.resize((box_width, box_height), Image.LANCZOS)
 
 
-def render_quote_card(quote_text, display_name, handle, avatar_bytes):
+def render_quote_card(quote_text, display_name, avatar_bytes):
     """Render a quote card image and return it as a BytesIO PNG buffer."""
     card = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
 
@@ -97,8 +96,7 @@ def render_quote_card(quote_text, display_name, handle, avatar_bytes):
     max_width = right - left
 
     name_font = ImageFont.truetype(FONT_ITALIC, 30)
-    handle_font = ImageFont.truetype(FONT_REGULAR, 22)
-    footer_height = 30 + 8 + 22 + 20  # name line + gap + handle line + gap
+    footer_height = 8 + 30  # gap + name line
 
     quote_font, lines, line_height = _fit_quote_text(
         draw, f"“{quote_text}”", max_width, bottom - top - footer_height
@@ -114,8 +112,6 @@ def render_quote_card(quote_text, display_name, handle, avatar_bytes):
 
     y += 8
     draw.text((left, y), f"— {display_name}", font=name_font, fill=NAME_COLOR)
-    y += 30 + 8
-    draw.text((left, y), handle, font=handle_font, fill=HANDLE_COLOR)
 
     buffer = io.BytesIO()
     card.save(buffer, format="PNG")
