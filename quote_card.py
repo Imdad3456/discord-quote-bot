@@ -76,19 +76,20 @@ def render_quote_card(quote_text, display_name, avatar_bytes):
     avatar = _prep_avatar(avatar_bytes, AVATAR_WIDTH, HEIGHT)
     card.paste(avatar, (WIDTH - AVATAR_WIDTH, 0))
 
-    # Soft gradient seam so the avatar blends into the background instead of a hard edge.
-    blend_width = 240
+    # Fade across the whole avatar (not just a narrow strip at the seam) so any hard
+    # contrast edges *inside* the photo itself - not just at the card's own seam -
+    # get smoothed out too, regardless of where in the image they happen to fall.
     seam_x = WIDTH - AVATAR_WIDTH
-    gradient = Image.new("L", (blend_width, HEIGHT), 0)
+    gradient = Image.new("L", (AVATAR_WIDTH, HEIGHT), 0)
     grad_draw = ImageDraw.Draw(gradient)
-    for i in range(blend_width):
-        t = i / blend_width
-        eased = t * t * (3 - 2 * t)  # smoothstep - gradual at both ends, not a linear ramp
+    for i in range(AVATAR_WIDTH):
+        t = i / AVATAR_WIDTH
+        eased = t * t * (3 - 2 * t)  # smoothstep
         alpha = int(255 * (1 - eased))
         grad_draw.line([(i, 0), (i, HEIGHT)], fill=alpha)
     gradient = gradient.filter(ImageFilter.GaussianBlur(8))
-    bg_strip = Image.new("RGB", (blend_width, HEIGHT), BG_COLOR)
-    card.paste(bg_strip, (seam_x - blend_width // 2, 0), gradient)
+    bg_strip = Image.new("RGB", (AVATAR_WIDTH, HEIGHT), BG_COLOR)
+    card.paste(bg_strip, (seam_x, 0), gradient)
 
     draw = ImageDraw.Draw(card)
 
