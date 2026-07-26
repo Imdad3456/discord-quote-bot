@@ -12,10 +12,10 @@ FONT_ITALIC = os.path.join(FONT_DIR, "Poppins-Italic.ttf")
 WIDTH, HEIGHT = 1200, 630
 AVATAR_WIDTH = int(WIDTH * 0.36)
 TEXT_BOX = (80, 80, WIDTH - AVATAR_WIDTH - 60, HEIGHT - 80)  # left, top, right, bottom
-BG_COLOR = (245, 245, 245)
-TEXT_COLOR = (20, 20, 20)
-NAME_COLOR = (20, 20, 20)
-HANDLE_COLOR = (130, 130, 130)
+BG_COLOR = (0, 0, 0)
+TEXT_COLOR = (235, 235, 235)
+NAME_COLOR = (235, 235, 235)
+HANDLE_COLOR = (150, 150, 150)
 
 
 def _wrap_text(draw, text, font, max_width):
