@@ -1,7 +1,7 @@
 import io
 import os
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = os.path.join(HERE, "assets", "fonts")
@@ -78,13 +78,16 @@ def render_quote_card(quote_text, display_name, handle, avatar_bytes):
     card.paste(avatar, (WIDTH - AVATAR_WIDTH, 0))
 
     # Soft gradient seam so the avatar blends into the background instead of a hard edge.
-    blend_width = 90
+    blend_width = 240
     seam_x = WIDTH - AVATAR_WIDTH
     gradient = Image.new("L", (blend_width, HEIGHT), 0)
     grad_draw = ImageDraw.Draw(gradient)
     for i in range(blend_width):
-        alpha = int(255 * (1 - i / blend_width))
+        t = i / blend_width
+        eased = t * t * (3 - 2 * t)  # smoothstep - gradual at both ends, not a linear ramp
+        alpha = int(255 * (1 - eased))
         grad_draw.line([(i, 0), (i, HEIGHT)], fill=alpha)
+    gradient = gradient.filter(ImageFilter.GaussianBlur(8))
     bg_strip = Image.new("RGB", (blend_width, HEIGHT), BG_COLOR)
     card.paste(bg_strip, (seam_x - blend_width // 2, 0), gradient)
 
