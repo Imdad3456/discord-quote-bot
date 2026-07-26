@@ -285,16 +285,36 @@ async def quote_card_command(ctx, *, override_text: str = None):
         await ctx.reply("Couldn't find that message.")
         return
 
-    text = (override_text or target.content or "").strip()
-    if not text:
-        await ctx.reply("That message doesn't have any text to turn into a quote.")
-        return
-
-    author = target.author
     names = load_names()
-    who = names.get(str(author.id)) or author.display_name
-    avatar_bytes = await author.display_avatar.replace(size=256, format="png").read()
-    buffer = await asyncio.to_thread(render_quote_card, text, who, avatar_bytes)
+    parsed = parse_quotes(target.content) if override_text is None else []
+
+    if parsed:
+        # Message follows the "quote" - Name/@mention format, so credit the person
+        # actually being quoted, not whoever happened to type the message.
+        quote_text, attribution_name, attribution_id = parsed[0]
+        quote_text = resolve_mentions_in_text(quote_text, names, ctx.guild)
+        who = resolve_attribution(attribution_name, attribution_id, names, ctx.guild)
+        avatar_source = target.author
+        if attribution_id is not None and ctx.guild is not None:
+            member = ctx.guild.get_member(attribution_id)
+            if member is None:
+                try:
+                    member = await ctx.guild.fetch_member(attribution_id)
+                except discord.NotFound:
+                    member = None
+            if member is not None:
+                avatar_source = member
+    else:
+        text = (override_text or target.content or "").strip()
+        if not text:
+            await ctx.reply("That message doesn't have any text to turn into a quote.")
+            return
+        quote_text = resolve_mentions_in_text(text, names, ctx.guild)
+        who = names.get(str(target.author.id)) or target.author.display_name
+        avatar_source = target.author
+
+    avatar_bytes = await avatar_source.display_avatar.replace(size=256, format="png").read()
+    buffer = await asyncio.to_thread(render_quote_card, quote_text, who, avatar_bytes)
     await ctx.reply(file=discord.File(buffer, filename="quote_card.png"))
 
 
