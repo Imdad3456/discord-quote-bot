@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import os
@@ -8,6 +9,7 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
+from quote_card import render_quote_card
 from quote_parser import MENTION_RE, parse_quotes
 
 load_dotenv()
@@ -268,6 +270,32 @@ async def top_quoted(ctx, top_n: int = 10):
     ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
     lines = [f"{idx}. {name} — {count} quote(s)" for idx, (name, count) in enumerate(ranked, start=1)]
     await ctx.reply("**Most Quoted:**\n" + "\n".join(lines))
+
+
+@bot.command(name="quotecard")
+async def quote_card_command(ctx, *, override_text: str = None):
+    if not ctx.message.reference:
+        await ctx.reply("Reply to a message with `!quotecard` to turn it into a quote card.")
+        return
+    try:
+        target = ctx.message.reference.resolved or await ctx.channel.fetch_message(
+            ctx.message.reference.message_id
+        )
+    except discord.NotFound:
+        await ctx.reply("Couldn't find that message.")
+        return
+
+    text = (override_text or target.content or "").strip()
+    if not text:
+        await ctx.reply("That message doesn't have any text to turn into a quote.")
+        return
+
+    author = target.author
+    avatar_bytes = await author.display_avatar.replace(size=256, format="png").read()
+    buffer = await asyncio.to_thread(
+        render_quote_card, text, author.display_name, str(author), avatar_bytes
+    )
+    await ctx.reply(file=discord.File(buffer, filename="quote_card.png"))
 
 
 @bot.command(name="setname")
