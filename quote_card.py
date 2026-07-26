@@ -100,19 +100,23 @@ def render_quote_card(quote_text, display_name, avatar_bytes):
     footer_height = 8 + 30  # gap + name line
 
     quote_font, lines, line_height = _fit_quote_text(
-        draw, f"“{quote_text}”", max_width, bottom - top - footer_height
+        draw, quote_text, max_width, bottom - top - footer_height
     )
 
     total_quote_height = line_height * len(lines)
     text_block_height = total_quote_height + footer_height
     y = top + max(0, (bottom - top - text_block_height) // 2)
+    center_x = left + max_width / 2
 
     for line in lines:
-        draw.text((left, y), line, font=quote_font, fill=TEXT_COLOR)
+        line_width = draw.textlength(line, font=quote_font)
+        draw.text((center_x - line_width / 2, y), line, font=quote_font, fill=TEXT_COLOR)
         y += line_height
 
     y += 8
-    draw.text((left, y), f"— {display_name}", font=name_font, fill=NAME_COLOR)
+    name_line = f"— {display_name}"
+    name_width = draw.textlength(name_line, font=name_font)
+    draw.text((center_x - name_width / 2, y), name_line, font=name_font, fill=NAME_COLOR)
 
     buffer = io.BytesIO()
     card.save(buffer, format="PNG")
