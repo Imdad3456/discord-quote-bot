@@ -56,3 +56,33 @@ def parse_quote(content):
     """Backward-compatible single-quote accessor - returns the first match or None."""
     quotes = parse_quotes(content)
     return quotes[0] if quotes else None
+
+
+_LOOSE_LINE_RE = re.compile(r'^(?P<quote>.+?)\s*[-–—]\s*(?P<attribution>.+)$', re.DOTALL)
+
+
+def parse_quotes_loose(content):
+    """Fallback for messages with no quote marks at all: matches '<text> - <attribution>'
+    per line/paragraph. Deliberately NOT used for passive channel scanning - "some
+    sentence - a name" is a common shape for ordinary chat too, so applying this
+    automatically would false-positive constantly. Only safe for explicit single-message
+    commands where a human already picked the message."""
+    if not content:
+        return []
+    results = []
+    for para in re.split(r"\n\s*\n|\n", content.strip()):
+        para = para.strip()
+        if not para:
+            continue
+        match = _LOOSE_LINE_RE.match(para)
+        if not match:
+            continue
+        quote = match.group("quote").strip().strip("\"“”'")
+        attribution = match.group("attribution").strip()
+        if not quote or not attribution:
+            continue
+        name, user_id = _parse_attribution(attribution)
+        if name is None and user_id is None:
+            continue
+        results.append((quote, name, user_id))
+    return results

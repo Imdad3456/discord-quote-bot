@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 from quote_card import render_quote_card
-from quote_parser import MENTION_RE, parse_quotes
+from quote_parser import MENTION_RE, parse_quotes, parse_quotes_loose
 
 load_dotenv()
 
@@ -287,6 +287,8 @@ async def quote_card_command(ctx, *, override_text: str = None):
 
     names = load_names()
     parsed = parse_quotes(target.content) if override_text is None else []
+    if not parsed and override_text is None:
+        parsed = parse_quotes_loose(target.content)
 
     if parsed:
         # Message follows the "quote" - Name/@mention format, so credit the person
