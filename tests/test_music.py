@@ -118,18 +118,27 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.cog_command_error(self.ctx, wavelink.InvalidNodeException())
         self.assertIn("unavailable", self.ctx.reply.call_args.args[0])
 
-    async def test_failure_stops_radio_and_only_notifies_once(self):
-        self.player.music_failed = False
+    async def test_failure_skips_bad_mirror_and_continues_playlist(self):
+        self.player.music_recovering = False
+        self.player.music_failures = 0
         self.player.music_channel = SimpleNamespace(send=AsyncMock())
-        self.player.queue.put(track())
+        next_track = track("Next")
+        self.player.queue.put(next_track)
         self.player.auto_queue.put(track())
         payload = SimpleNamespace(player=self.player)
-        await asyncio.gather(self.cog.on_wavelink_track_exception(payload), self.cog.on_wavelink_track_exception(payload))
-        self.player.disconnect.assert_awaited_once()
+        await self.cog.on_wavelink_track_exception(payload)
+        self.player.play.assert_awaited_once_with(next_track)
+        self.player.disconnect.assert_not_awaited()
         self.player.music_channel.send.assert_awaited_once()
-        self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.disabled)
-        self.assertFalse(self.player.soundcloud_radio)
-        self.assertEqual(len(self.player.queue) + len(self.player.auto_queue), 0)
+
+    async def test_failure_limit_stops_playback(self):
+        self.player.music_recovering = False
+        self.player.music_failures = 10
+        self.player.music_channel = SimpleNamespace(send=AsyncMock())
+        self.player.queue.put(track())
+        await self.cog.on_wavelink_track_exception(SimpleNamespace(player=self.player))
+        self.player.disconnect.assert_awaited_once()
+        self.assertEqual(len(self.player.queue), 0)
 
     async def test_soundcloud_radio_avoids_repeats_and_prioritizes_queue(self):
         self.player.soundcloud_radio = True

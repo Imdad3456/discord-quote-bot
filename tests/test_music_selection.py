@@ -43,6 +43,11 @@ class SelectionTests(unittest.TestCase):
                   candidate("White Girl", author="Shy Glizzy"), good]
         self.assertEqual(select_tracks(tracks, "Norah Jones Come Away With Me", strict=True), [good])
 
+    def test_strict_search_rejects_medleys_and_multi_song_titles(self):
+        good = candidate("Thunder", author="Imagine Dragons")
+        bad = candidate("Thunder / Young Dumb & Broke (Medley)", author="Imagine Dragons")
+        self.assertEqual(select_tracks([bad, good], "Imagine Dragons Thunder", strict=True), [good])
+
     def test_explicit_remix_is_allowed(self):
         remix = candidate("Come Away With Me Remix")
         self.assertEqual(select_tracks([remix], "Norah Jones Come Away With Me remix", strict=True), [remix])

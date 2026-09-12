@@ -68,7 +68,9 @@ def select_tracks(tracks, query, *, strict=False):
         words = tokens(track.title)
         if words & {"preview", "snippet", "teaser", "sample"}:
             continue
-        if words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed"} - wanted):
+        if words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed", "medley", "mashup"} - wanted):
+            continue
+        if strict and "/" in track.title and "/" not in query:
             continue
         if not track.is_stream and not 90000 <= track.length <= 900000:
             continue

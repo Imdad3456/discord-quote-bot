@@ -123,6 +123,8 @@ class Music(commands.Cog):
                     raise commands.CheckFailure("I need Connect and Speak permissions in your voice channel.")
                 player = await channel.connect(cls=wavelink.Player, self_deaf=True)
                 player.autoplay = wavelink.AutoPlayMode.partial
+            player.music_failures = 0
+            player.music_recovering = False
             player.music_channel = ctx.channel
             selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else (tracks if spotify_link else tracks[:1])
             room = max(0, MAX_QUEUE - len(player.queue))
@@ -284,23 +286,38 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, payload):
         player = payload.player
-        if player is None or getattr(player, "music_failed", False):
+        if player is None or getattr(player, "music_recovering", False):
             return
-        player.music_failed = True
-        player.soundcloud_radio = False
-        player.autoplay = wavelink.AutoPlayMode.disabled
-        player.queue.clear()
-        player.auto_queue.clear()
+        player.music_recovering = True
+        player.music_failures = getattr(player, "music_failures", 0) + 1
         try:
+            if player.queue and player.music_failures <= 10:
+                next_track = player.queue.get()
+                if player.music_failures == 1 and getattr(player, "music_channel", None):
+                    await player.music_channel.send(
+                        "One unavailable mirror was skipped; continuing with the playlist.",
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                await player.play(next_track)
+                return
+            player.soundcloud_radio = False
+            player.autoplay = wavelink.AutoPlayMode.disabled
+            player.queue.clear()
+            player.auto_queue.clear()
             await player.disconnect()
-        finally:
             channel = getattr(player, "music_channel", None)
             if channel:
                 await channel.send(
-                    "The source refused playback. Stopped music and radio to avoid repeated failures. "
-                    "Try `!play <song name>` or `!radio chill jazz` for SoundCloud, or another supported link.",
+                    "Too many tracks were unavailable, so playback stopped. Try another playlist or song.",
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
+        finally:
+            player.music_recovering = False
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload):
+        if payload.player is not None:
+            payload.player.music_failures = 0
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload):
