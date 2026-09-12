@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from quote_card import render_quote_card
 from quote_parser import MENTION_RE, parse_quotes, parse_quotes_loose
+from dashboard import Dashboard
 
 load_dotenv()
 
@@ -31,9 +32,13 @@ intents.message_content = True
 class QuoteBot(commands.Bot):
     async def setup_hook(self):
         await self.load_extension("music")
+        self.dashboard = Dashboard(self)
+        await self.dashboard.start()
 
     async def close(self):
         import wavelink
+        if hasattr(self, "dashboard"):
+            await self.dashboard.close()
         await wavelink.Pool.close()
         await super().close()
 

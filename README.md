@@ -63,6 +63,13 @@ Requested songs take priority over radio recommendations. A new radio query adds
 a seed to the queue; it does not interrupt the current song. Radio is related-track
 autoplay, not Spotify's personalized radio or a natural-language DJ.
 
+## Web dashboard
+
+Set a long random `DASHBOARD_TOKEN` on the bot service and expose its `PORT` with
+a Railway public domain. Open `https://your-domain/<DASHBOARD_TOKEN>` to see live
+players and queues and control pause, resume, skip, shuffle, clear, stop, and volume.
+Keep the complete dashboard URL private because the token grants music control.
+
 ## Supported sources
 
 The included configuration enables YouTube/YouTube Music, SoundCloud, Bandcamp,
