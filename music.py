@@ -2,11 +2,13 @@
 import asyncio
 import logging
 import os
-from collections import defaultdict
+import random
+from collections import defaultdict, deque
 
 import discord
 import wavelink
 from discord.ext import commands
+from music_selection import STATIONS, normalize_query, provider, select_tracks, station_name
 
 log = logging.getLogger(__name__)
 MAX_QUEUE = 200
@@ -74,13 +76,33 @@ class Music(commands.Cog):
         return ctx.voice_client
 
     async def enqueue(self, ctx, query, radio=False):
-        query = query.strip().strip("<>")
+        query = normalize_query(query)
         if not query:
             raise commands.BadArgument("Provide a song name or supported link.")
         async with ctx.typing():
-            tracks = await wavelink.Playable.search(
-                query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
-            )
+            station = station_name(query)
+            seeds = deque()
+            if station:
+                radio = True
+                seed_list = STATIONS[station].copy()
+                random.shuffle(seed_list)
+                seeds.extend(seed_list)
+                tracks = await self.station_track(seeds, set())
+            else:
+                try:
+                    tracks = await wavelink.Playable.search(
+                        query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
+                    )
+                except wavelink.LavalinkLoadException as error:
+                    source = provider(query)
+                    log.warning("Track lookup failed for %s (%s)", source, type(error).__name__)
+                    detail = {
+                        "YouTube": "YouTube rejected this link on the music server. Its login/authentication setup needs attention; retrying this link will not fix that.",
+                        "Spotify": "Spotify could not load this playlist/track. The server's Spotify credentials/token setup needs attention. No songs were added.",
+                    }.get(source, "This source could not load that link. It may be unavailable or restricted.")
+                    raise commands.BadArgument(detail) from error
+                if not query.startswith(("https://", "http://")) and not isinstance(tracks, wavelink.Playlist):
+                    tracks = select_tracks(tracks, query)
             if not tracks:
                 await self.reply(ctx, "No tracks found. Try a song and artist name, or another supported link.")
                 return
@@ -105,18 +127,42 @@ class Music(commands.Cog):
                 return
             if radio:
                 player.autoplay = wavelink.AutoPlayMode.enabled
-                player.soundcloud_radio = added[0].source == "soundcloud"
+                player.soundcloud_radio = bool(station) or added[0].source == "soundcloud"
+                player.station_seeds = seeds
+                player.station_name = station
                 player.radio_query = query if not query.startswith("http") else added[0].author
                 player.radio_seen = {added[0].identifier}
                 if player.soundcloud_radio:
                     player.autoplay = wavelink.AutoPlayMode.disabled
-            player.queue.put(added)
-            if player.current is None:
+            if radio:
+                player.auto_queue.clear()
+                await player.play(added[0])
+                player.queue.put(added[1:])
+            else:
+                player.queue.put(added)
+            if not radio and player.current is None:
                 await player.play(player.queue.get())
-            suffix = " Radio will recommend more songs when the queue runs out." if radio else ""
+            suffix = f" Station: {station}. Fresh song selections follow your requested queue." if station else (" Radio will select more songs when the queue runs out." if radio else "")
             if len(added) < len(selected):
                 suffix += f" Queue limit reached; {len(selected) - len(added)} tracks were omitted."
             await self.reply(ctx, f"Added {len(added)} song(s): {title(added[0])}.{suffix}")
+
+    async def station_track(self, seeds, seen):
+        # Try a bounded number per refill; no infinite loop against blocked providers.
+        for _ in range(min(4, len(seeds))):
+            query = seeds.popleft()
+            try:
+                results = await wavelink.Playable.search(query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch"))
+            except wavelink.LavalinkLoadException:
+                continue
+            matches = [t for t in select_tracks(results, query, strict=True) if t.identifier not in seen]
+            if matches:
+                return matches[:1]
+        return []
+
+    @commands.command(help="List curated radio stations.")
+    async def stations(self, ctx):
+        await self.reply(ctx, "Stations: `!radio chill jazz`, `!radio pop`, `!radio white girl pop`, `!radio 2015 hits`. A new station starts immediately; requested songs stay queued.")
 
     @commands.command(name="play", aliases=["p"], help="Play a song name, track URL, or playlist URL.")
     async def play(self, ctx, *, query: str):
@@ -135,6 +181,7 @@ class Music(commands.Cog):
                 player.autoplay = wavelink.AutoPlayMode.disabled
                 player.radio_query = player.current.author
                 player.radio_seen = {player.current.identifier}
+                player.station_seeds = deque()
             if not enabled:
                 player.auto_queue.clear()
             await self.reply(ctx, "Radio on: recommendations follow your queue." if enabled else "Radio off: only queued songs will play.")
@@ -240,12 +287,16 @@ class Music(commands.Cog):
                 # Wavelink's native recommendations only support YouTube/Spotify.
                 # SoundCloud radio uses fresh search results for the seed, then artist.
                 candidates = []
-                for query in dict.fromkeys([player.radio_query, payload.track.author]):
+                seeds = getattr(player, "station_seeds", None)
+                queries = [] if getattr(player, "station_name", None) else list(dict.fromkeys([player.radio_query, payload.track.author]))
+                if seeds is not None and len(seeds):
+                    candidates = await self.station_track(seeds, player.radio_seen)
+                for query in queries:
                     try:
                         results = await wavelink.Playable.search(query, source="scsearch")
                     except wavelink.WavelinkException:
                         continue
-                    candidates = [t for t in results if t.identifier not in player.radio_seen]
+                    candidates = [t for t in select_tracks(results, query) if t.identifier not in player.radio_seen]
                     if candidates:
                         break
                 if not candidates:

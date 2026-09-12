@@ -63,7 +63,7 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_radio_seed_and_off_preserves_requested_queue(self):
         with patch("music.wavelink.Playable.search", AsyncMock(return_value=[track()])):
-            await self.cog.enqueue(self.ctx, "jazz", radio=True)
+            await self.cog.enqueue(self.ctx, "song", radio=True)
         self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.enabled)
         self.player.queue.put(track("Requested"))
         self.player.auto_queue.put(track("Recommended"))

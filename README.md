@@ -6,6 +6,33 @@ Text searches default to SoundCloud because YouTube can require login from hoste
 servers. SoundCloud radio searches for new seed/artist matches, avoids repeats,
 and stops when there are no fresh matches. Playback errors stop the session with
 one notice, rather than cycling through failing recommendations.
+
+`!stations` lists curated stations. `!radio pop`, `!radio white girl pop`,
+`!radio chill jazz`, and `!radio 2015 hits` select known songs instead of matching
+the station words against a song title. `!play popular songs` and
+`!play 2015 most popular` also start those stations. Starting a new station
+replaces the current song while preserving songs explicitly queued with `!play`.
+Station lists are curated examples, not live charts; they stop when exhausted.
+Search selection excludes previews, snippets, short samples, unsolicited remixes,
+and long compilations. Exact links are not subject to the search duration filter.
+
+### Provider authentication
+
+The live server returned `This video requires login` for the supplied YouTube
+link and `Failed to retrieve secret from Spotify` for the supplied Spotify playlist.
+These are upstream restrictions, not a successful playback test or a disconnected node.
+Set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on Lavalink to use a developer
+application instead of the failing anonymous Spotify token lookup. Playlist
+permissions and Spotify API restrictions may still apply. Re-test the actual playlist
+after configuring credentials.
+
+Authenticated YouTube support is prepared but disabled. To use an existing
+YouTube OAuth refresh token, enter it as `YOUTUBE_REFRESH_TOKEN` and set
+`YOUTUBE_OAUTH_ENABLED=true` on Lavalink. Only the user should complete Google's
+consent flow and enter tokens. Follow the upstream YouTube plugin's OAuth guide;
+the maintainers warn that authenticated automation can risk the Google account,
+and recommend against using a primary account. Authentication does not guarantee
+every video is playable. Do not commit credentials to this repository.
 Python 3.10+ is required. Music is optional: without the two Lavalink variables,
 the bot starts normally and explains how to enable music when a music command is used.
 

@@ -15,14 +15,20 @@ lavalink:
       vimeo: true
       http: false
       local: false
+    soundcloudFilterOutPreviewTracks: true
 plugins:
   youtube:
     enabled: true
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
+    oauth:
+      enabled: "${YOUTUBE_OAUTH_ENABLED:false}"
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+      skipInitialization: true
   lavasrc:
     providers:
+      - "scsearch:%QUERY%"
       - 'ytsearch:"%ISRC%"'
       - "ytsearch:%QUERY%"
     sources:
