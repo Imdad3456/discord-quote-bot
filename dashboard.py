@@ -3,6 +3,7 @@ import hmac
 import os
 
 from aiohttp import web
+import discord
 import wavelink
 
 from music_selection import normalize_query, select_tracks
@@ -15,7 +16,7 @@ PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport
 body{max-width:920px;margin:auto;padding:32px 18px}h1{font-size:30px;margin:0 0 6px}.muted{color:#99a3b4}
 .card{background:#141822;border:1px solid #252b39;border-radius:16px;padding:20px;margin:18px 0;box-shadow:0 12px 35px #0005}
 .now{font-size:20px;font-weight:700;margin:10px 0}.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-button,input{border:1px solid #354056;border-radius:9px;background:#202737;color:white;padding:10px 14px;font:inherit}
+button,input,select{border:1px solid #354056;border-radius:9px;background:#202737;color:white;padding:10px 14px;font:inherit}
 button{cursor:pointer}button:hover{background:#2d3850}.danger{border-color:#7d3440}ol{padding-left:25px}li{padding:5px}
 .empty{text-align:center;padding:42px}.pill{font-size:12px;background:#243149;padding:4px 8px;border-radius:99px}
 .search{display:flex;gap:9px;margin:15px 0}.search input{flex:1;min-width:180px}.status{min-height:22px;margin:8px 0;color:#9cd3ff}
@@ -23,11 +24,11 @@ button{cursor:pointer}button:hover{background:#2d3850}.danger{border-color:#7d34
 <script>
 const token=location.pathname.split('/').filter(Boolean).pop();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function act(guild,action,value){let r=await fetch(`/api/${token}/control`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({guild,action,value})});let body=await r.text(),d;try{d=JSON.parse(body)}catch{d={error:body||'Request failed'}}let s=document.querySelector(`#s${guild}`);if(s)s.textContent=d.message||d.error||'';if(r.ok)setTimeout(refresh,2500)}
-function add(guild){let input=document.querySelector(`#q${guild}`),query=input.value.trim();if(!query)return;act(guild,'play',query);input.value=''}
+async function act(guild,action,value,channel){let r=await fetch(`/api/${token}/control`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({guild,action,value,channel})});let body=await r.text(),d;try{d=JSON.parse(body)}catch{d={error:body||'Request failed'}}let s=document.querySelector(`#s${guild}`);if(s)s.textContent=d.message||d.error||'';if(r.ok)setTimeout(refresh,2500)}
+function add(guild){let input=document.querySelector(`#q${guild}`),query=input.value.trim(),channel=document.querySelector(`#c${guild}`)?.value;if(!query)return;act(guild,'play',query,channel);input.value=''}
 function card(p){return `<section class=card><div class=row><h2>${esc(p.guild)}</h2><span class=pill>${p.connected?'Connected':'Idle'}</span></div>
 <div class=muted>Now playing</div><div class=now>${p.current?esc(p.current.title)+' · '+esc(p.current.author):'Nothing playing'}</div>
-<div class=search><input id="q${p.guild_id}" placeholder="Song name, YouTube link, or Spotify link" onkeydown="if(event.key==='Enter')add('${p.guild_id}')"><button onclick="add('${p.guild_id}')">Search & add</button></div><div class=status id="s${p.guild_id}"></div>
+<div class=search>${p.connected?'':`<select id="c${p.guild_id}">${p.channels.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>`}<input id="q${p.guild_id}" placeholder="Song name, YouTube link, or Spotify link" onkeydown="if(event.key==='Enter')add('${p.guild_id}')"><button onclick="add('${p.guild_id}')">Search & add</button></div><div class=status id="s${p.guild_id}"></div>
 <div class=row><button onclick="act('${p.guild_id}','pause')">Pause</button><button onclick="act('${p.guild_id}','resume')">Resume</button>
 <button onclick="act('${p.guild_id}','skip')">Skip</button><button onclick="act('${p.guild_id}','shuffle')">Shuffle</button>
 <button onclick="act('${p.guild_id}','clear')">Clear queue</button><button class=danger onclick="act('${p.guild_id}','stop')">Stop</button>
@@ -60,16 +61,17 @@ class Dashboard:
         if not self.allowed(request):
             raise web.HTTPNotFound()
         players = []
-        for voice in self.bot.voice_clients:
-            if not isinstance(voice, wavelink.Player):
-                continue
+        for guild in self.bot.guilds:
+            voice = next((p for p in self.bot.voice_clients if p.guild.id == guild.id), None)
+            player = voice if isinstance(voice, wavelink.Player) else None
             players.append({
-                "guild": voice.guild.name,
-                "guild_id": str(voice.guild.id),
-                "connected": voice.connected,
-                "volume": voice.volume,
-                "current": track_data(voice.current) if voice.current else None,
-                "queue": [track_data(track) for track in list(voice.queue)],
+                "guild": guild.name,
+                "guild_id": str(guild.id),
+                "connected": bool(player and player.connected),
+                "volume": player.volume if player else 50,
+                "current": track_data(player.current) if player and player.current else None,
+                "queue": [track_data(track) for track in list(player.queue)] if player else [],
+                "channels": [{"id": str(channel.id), "name": channel.name} for channel in guild.voice_channels],
             })
         return web.json_response({"players": players})
 
@@ -77,13 +79,25 @@ class Dashboard:
         if not self.allowed(request):
             raise web.HTTPNotFound()
         data = await request.json()
-        player = next((p for p in self.bot.voice_clients if str(p.guild.id) == str(data.get("guild"))), None)
-        if not isinstance(player, wavelink.Player):
-            raise web.HTTPNotFound(text="Player not found")
+        guild = self.bot.get_guild(int(data.get("guild", 0)))
+        if guild is None:
+            raise web.HTTPNotFound(text="Server not found")
+        player = next((p for p in self.bot.voice_clients if p.guild.id == guild.id), None)
         action = data.get("action")
         message = "Done."
         if action == "play":
+            if not isinstance(player, wavelink.Player):
+                channel = guild.get_channel(int(data.get("channel") or 0))
+                if not isinstance(channel, discord.VoiceChannel):
+                    raise web.HTTPBadRequest(text="Choose a voice channel first.")
+                permissions = channel.permissions_for(guild.me)
+                if not permissions.connect or not permissions.speak:
+                    raise web.HTTPForbidden(text="The bot needs Connect and Speak permissions there.")
+                player = await channel.connect(cls=wavelink.Player, self_deaf=True)
+                player.autoplay = wavelink.AutoPlayMode.partial
             message = await self.add_tracks(player, data.get("value", ""))
+        elif not isinstance(player, wavelink.Player):
+            raise web.HTTPNotFound(text="Start a song first.")
         elif action == "pause":
             await player.pause(True)
         elif action == "resume":
