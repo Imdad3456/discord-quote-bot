@@ -1,0 +1,11 @@
+services:
+  lavalink:
+    build:
+      context: deploy/lavalink
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2333:2333"
+    environment:
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:?Set LAVALINK_PASSWORD in .env}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}

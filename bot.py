@@ -28,7 +28,17 @@ QUOTE_REACTION_EMOJI = "\U0001FAC3"  # 🫃 pregnant man
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+class QuoteBot(commands.Bot):
+    async def setup_hook(self):
+        await self.load_extension("music")
+
+    async def close(self):
+        import wavelink
+        await wavelink.Pool.close()
+        await super().close()
+
+
+bot = QuoteBot(command_prefix="!", intents=intents)
 
 
 def load_quotes():
