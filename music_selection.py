@@ -61,19 +61,24 @@ def tokens(value):
     return set(re.findall(r"[a-z0-9]+", value.lower())) - {"the", "a", "and", "feat", "ft", "official", "audio", "lyrics"}
 
 
-def select_tracks(tracks, query, *, strict=False):
+def select_tracks(tracks, query, *, strict=False, expected_length=None):
     wanted = tokens(query)
     ranked = []
     for track in tracks:
         words = tokens(track.title)
         if words & {"preview", "snippet", "teaser", "sample"}:
             continue
-        if words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed", "medley", "mashup"} - wanted):
+        if words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed", "medley", "mashup",
+                    "edit", "version", "bootleg", "rework", "tribute", "instrumental"} - wanted):
             continue
         if strict and "/" in track.title and "/" not in query:
             continue
         if not track.is_stream and not 90000 <= track.length <= 900000:
             continue
+        if strict and expected_length and not track.is_stream:
+            tolerance = max(12000, expected_length * 0.08)
+            if abs(track.length - expected_length) > tolerance:
+                continue
         matched = len(wanted & tokens(track.title + " " + track.author)) / max(1, len(wanted))
         if strict and matched < 0.65:
             continue

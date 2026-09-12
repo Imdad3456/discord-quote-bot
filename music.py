@@ -166,7 +166,8 @@ class Music(commands.Cog):
             return []
         semaphore = asyncio.Semaphore(5)
 
-        async def match(query):
+        async def match(candidate):
+            query, expected_length = candidate
             async with semaphore:
                 try:
                     results = await wavelink.Playable.search(
@@ -174,10 +175,10 @@ class Music(commands.Cog):
                     )
                 except wavelink.LavalinkLoadException:
                     return None
-                matches = select_tracks(results, query, strict=True)
+                matches = select_tracks(results, query, strict=True, expected_length=expected_length)
                 return matches[0] if matches else None
 
-        matches = await asyncio.gather(*(match(query) for query in queries))
+        matches = await asyncio.gather(*(match(candidate) for candidate in queries))
         return [track for track in matches if track is not None]
 
     async def station_track(self, seeds, seen):

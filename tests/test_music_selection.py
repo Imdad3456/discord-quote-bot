@@ -28,7 +28,15 @@ class SelectionTests(unittest.TestCase):
             ]
         }}}}}}
         html = '<script id="__NEXT_DATA__" type="application/json">' + __import__("json").dumps(payload) + "</script>"
-        self.assertEqual(embed_queries(html), ["Imagine Dragons Thunder"])
+        self.assertEqual(embed_queries(html), [("Imagine Dragons Thunder", None)])
+
+    def test_spotify_match_requires_original_duration(self):
+        original = candidate("Thunder", author="Imagine Dragons", length=187000)
+        remix = candidate("Thunder", author="DJ Upload", length=245000)
+        self.assertEqual(
+            select_tracks([remix, original], "Imagine Dragons Thunder", strict=True, expected_length=187146),
+            [original],
+        )
 
     def test_user_station_intents(self):
         self.assertEqual(station_name("white girl pop"), "pop")

@@ -45,6 +45,11 @@ def track_query(item):
     return f"{' '.join(artists)} {name}"
 
 
+def track_candidate(item):
+    query = track_query(item)
+    return (query, item.get("duration_ms")) if query else None
+
+
 def embed_queries(document, limit=200):
     match = re.search(
         r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
@@ -59,7 +64,7 @@ def embed_queries(document, limit=200):
         return []
     items = entity.get("trackList") or [entity]
     return [
-        f'{item["subtitle"]} {item["title"]}'
+        (f'{item["subtitle"]} {item["title"]}', item.get("duration"))
         for item in items[:limit]
         if item.get("entityType") == "track" and item.get("title") and item.get("subtitle")
     ]
@@ -125,7 +130,7 @@ class SpotifyResolver:
         ) as session:
             if kind == "track":
                 item = await self.get(session, f"{base}/tracks/{item_id}")
-                return [query for query in [track_query(item)] if query]
+                return [candidate for candidate in [track_candidate(item)] if candidate]
             url = (f"{base}/albums/{item_id}/tracks?limit=50" if kind == "album"
                    else f"{base}/playlists/{item_id}/items?limit=50")
             queries = []
@@ -134,9 +139,9 @@ class SpotifyResolver:
                     page = await self.get(session, url)
                     for entry in page.get("items", []):
                         item = entry.get("item", entry.get("track", entry)) if isinstance(entry, dict) else None
-                        query = track_query(item)
-                        if query:
-                            queries.append(query)
+                        candidate = track_candidate(item)
+                        if candidate:
+                            queries.append(candidate)
                             if len(queries) == limit:
                                 break
                     url = page.get("next")
