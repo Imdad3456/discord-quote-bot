@@ -25,7 +25,7 @@ plugins:
     oauth:
       enabled: "${YOUTUBE_OAUTH_ENABLED:false}"
       refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
-      skipInitialization: true
+      skipInitialization: "${YOUTUBE_OAUTH_SKIP_INITIALIZATION:false}"
   lavasrc:
     providers:
       - "scsearch:%QUERY%"
@@ -39,3 +39,6 @@ plugins:
       countryCode: "US"
       playlistLoadLimit: 2
       albumLoadLimit: 4
+logging:
+  level:
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO

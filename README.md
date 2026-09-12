@@ -27,10 +27,11 @@ result only in the bot service as `SPOTIFY_REFRESH_TOKEN`. Set that service's
 `SPOTIFY_CLIENT_ID` to the application client ID. The bot reads Spotify metadata
 and finds playable SoundCloud matches; it never streams audio from Spotify.
 
-Authenticated YouTube support is prepared but disabled. To use an existing
-YouTube OAuth refresh token, enter it as `YOUTUBE_REFRESH_TOKEN` and set
-`YOUTUBE_OAUTH_ENABLED=true` on Lavalink. Only the user should complete Google's
-consent flow and enter tokens. Follow the upstream YouTube plugin's OAuth guide;
+Authenticated YouTube support is prepared but disabled. Set
+`YOUTUBE_OAUTH_ENABLED=true` on Lavalink to start the plugin's device flow. After
+authorization, save the logged refresh token as `YOUTUBE_REFRESH_TOKEN`; future
+deploys use it automatically. Only the user should complete Google's consent flow.
+Follow the upstream YouTube plugin's OAuth guide;
 the maintainers warn that authenticated automation can risk the Google account,
 and recommend against using a primary account. Authentication does not guarantee
 every video is playable. Do not commit credentials to this repository.
