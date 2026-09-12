@@ -9,6 +9,7 @@ import discord
 import wavelink
 from discord.ext import commands
 from music_selection import STATIONS, normalize_query, provider, select_tracks, station_name
+from spotify_resolver import SpotifyResolver, parse_spotify_url
 
 log = logging.getLogger(__name__)
 MAX_QUEUE = 200
@@ -23,6 +24,7 @@ class Music(commands.Cog):
         self.bot = bot
         self.connect_task = None
         self.locks = defaultdict(asyncio.Lock)
+        self.spotify = SpotifyResolver()
 
     async def cog_before_invoke(self, ctx):
         await self.locks[ctx.guild.id].acquire()
@@ -80,6 +82,7 @@ class Music(commands.Cog):
         if not query:
             raise commands.BadArgument("Provide a song name or supported link.")
         async with ctx.typing():
+            spotify_link = bool(parse_spotify_url(query))
             station = station_name(query)
             seeds = deque()
             if station:
@@ -88,6 +91,8 @@ class Music(commands.Cog):
                 random.shuffle(seed_list)
                 seeds.extend(seed_list)
                 tracks = await self.station_track(seeds, set())
+            elif spotify_link:
+                tracks = await self.spotify_tracks(query)
             else:
                 try:
                     tracks = await wavelink.Playable.search(
@@ -119,7 +124,7 @@ class Music(commands.Cog):
                 player = await channel.connect(cls=wavelink.Player, self_deaf=True)
                 player.autoplay = wavelink.AutoPlayMode.partial
             player.music_channel = ctx.channel
-            selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else tracks[:1]
+            selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else (tracks if spotify_link else tracks[:1])
             room = max(0, MAX_QUEUE - len(player.queue))
             added = selected[:room]
             if not added:
@@ -146,6 +151,32 @@ class Music(commands.Cog):
             if len(added) < len(selected):
                 suffix += f" Queue limit reached; {len(selected) - len(added)} tracks were omitted."
             await self.reply(ctx, f"Added {len(added)} song(s): {title(added[0])}.{suffix}")
+
+    async def spotify_tracks(self, url):
+        try:
+            queries = await self.spotify.resolve(url, MAX_QUEUE)
+        except (RuntimeError, asyncio.TimeoutError):
+            log.exception("Spotify account lookup failed")
+            raise commands.BadArgument(
+                "Spotify could not read that link. Check the bot service's Spotify account variables, then redeploy."
+            )
+        if not queries:
+            return []
+        semaphore = asyncio.Semaphore(5)
+
+        async def match(query):
+            async with semaphore:
+                try:
+                    results = await wavelink.Playable.search(
+                        query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
+                    )
+                except wavelink.LavalinkLoadException:
+                    return None
+                matches = select_tracks(results, query, strict=True)
+                return matches[0] if matches else None
+
+        matches = await asyncio.gather(*(match(query) for query in queries))
+        return [track for track in matches if track is not None]
 
     async def station_track(self, seeds, seen):
         # Try a bounded number per refill; no infinite loop against blocked providers.

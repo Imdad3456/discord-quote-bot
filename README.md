@@ -21,10 +21,11 @@ and long compilations. Exact links are not subject to the search duration filter
 The live server returned `This video requires login` for the supplied YouTube
 link and `Failed to retrieve secret from Spotify` for the supplied Spotify playlist.
 These are upstream restrictions, not a successful playback test or a disconnected node.
-Set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on Lavalink to use a developer
-application instead of the failing anonymous Spotify token lookup. Playlist
-permissions and Spotify API restrictions may still apply. Re-test the actual playlist
-after configuring credentials.
+Spotify playlist access uses the account authorization helper in this repository.
+Run `python spotify_authorize.py`, approve access in the browser, and store the
+result only in the bot service as `SPOTIFY_REFRESH_TOKEN`. Set that service's
+`SPOTIFY_CLIENT_ID` to the application client ID. The bot reads Spotify metadata
+and finds playable SoundCloud matches; it never streams audio from Spotify.
 
 Authenticated YouTube support is prepared but disabled. To use an existing
 YouTube OAuth refresh token, enter it as `YOUTUBE_REFRESH_TOKEN` and set
@@ -69,10 +70,10 @@ Twitch, Vimeo, and Spotify metadata through LavaSrc. Source availability depends
 on the hosting IP, region, provider restrictions, and upstream plugin changes.
 No bot can promise every link will work.
 
-Spotify tracks/playlists are matched to audio on YouTube, rather than streamed
-from Spotify. Matches may differ or fail. Private and Spotify-generated playlists
-are not guaranteed. Start with public playlists. Spotify credentials, when needed,
-belong on the Lavalink service. Other services require additional plugins/configuration.
+Spotify tracks, albums, and playlists are matched to audio on SoundCloud, rather
+than streamed from Spotify. Matches may differ or fail. Account access requires
+`SPOTIFY_CLIENT_ID` and `SPOTIFY_REFRESH_TOKEN` on the bot service. Other services
+require additional plugins/configuration.
 Arbitrary HTTP streams and local files are disabled in this shared-bot configuration.
 
 ## Local setup
@@ -87,9 +88,10 @@ Arbitrary HTTP streams and local files are disabled in this shared-bot configura
    plus its existing quote-related permissions.
 
 Lavalink handles audio: Python does not need FFmpeg or a local audio device.
-If Spotify lookup requires credentials, create an application at
-<https://developer.spotify.com/dashboard>, set `SPOTIFY_CLIENT_ID` and
-`SPOTIFY_CLIENT_SECRET` in `.env`, then recreate the Lavalink container.
+For Spotify links, create an application at <https://developer.spotify.com/dashboard>,
+add `http://127.0.0.1:8888/callback` as a redirect URI, run
+`python spotify_authorize.py`, and set the resulting `SPOTIFY_CLIENT_ID` and
+`SPOTIFY_REFRESH_TOKEN` values in the bot environment.
 Never commit `.env` or paste the Discord token into chat.
 
 ## Railway setup
@@ -99,11 +101,12 @@ from this repository for Lavalink:
 
 1. Set its Root Directory to `/deploy/lavalink`. Railway should detect the
    Dockerfile there. Leave the custom start command empty so the image starts Lavalink.
-2. Set `LAVALINK_PASSWORD` on the new service. Add Spotify credentials if required.
+2. Set `LAVALINK_PASSWORD` on the new service.
 3. Enable Railway private networking for the services. Set the bot service's
    `LAVALINK_URI` to `http://<lavalink-private-hostname>:2333`, using the hostname
    shown for your service, and set the same `LAVALINK_PASSWORD` on the bot.
-4. Deploy both services. Check Lavalink logs for startup and plugin loading, and
+4. For Spotify links, add `SPOTIFY_CLIENT_ID` and `SPOTIFY_REFRESH_TOKEN` to the
+   Python bot service, then deploy both services. Check Lavalink logs for startup and plugin loading, and
    then check bot logs for the music connection. The Lavalink service must have
    outbound connectivity to Discord voice and music providers.
 

@@ -53,7 +53,7 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         playlist.tracks = [track(str(i)) for i in range(MAX_QUEUE + 10)]
         playlist.__len__.return_value = len(playlist.tracks)
         self.player.current = track("Already playing")
-        with patch("music.wavelink.Playable.search", AsyncMock(return_value=playlist)):
+        with patch.object(self.cog, "spotify_tracks", AsyncMock(return_value=playlist.tracks)):
             await self.cog.enqueue(self.ctx, "https://open.spotify.com/playlist/test")
         self.assertEqual(len(self.player.queue), MAX_QUEUE)
         self.assertEqual(self.player.queue[0].title, "0")

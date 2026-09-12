@@ -5,6 +5,7 @@ from collections import deque
 
 from music_selection import normalize_query, provider, select_tracks, station_name
 from music import Music
+from spotify_resolver import parse_spotify_url, track_query
 
 
 def candidate(title, author="Norah Jones", length=210000):
@@ -12,6 +13,13 @@ def candidate(title, author="Norah Jones", length=210000):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_spotify_urls_and_track_queries(self):
+        self.assertEqual(parse_spotify_url("https://open.spotify.com/playlist/abc?si=1"), ("playlist", "abc"))
+        self.assertEqual(parse_spotify_url("https://open.spotify.com/intl-fr/track/xyz"), ("track", "xyz"))
+        self.assertIsNone(parse_spotify_url("https://open.spotify.com.evil.invalid/track/xyz"))
+        self.assertEqual(track_query({"name": "Song", "artists": [{"name": "Artist"}]}), "Artist Song")
+        self.assertIsNone(track_query({"type": "episode", "name": "Podcast", "artists": []}))
+
     def test_user_station_intents(self):
         self.assertEqual(station_name("white girl pop"), "pop")
         self.assertEqual(station_name("2015 most popular"), "2015 hits")
