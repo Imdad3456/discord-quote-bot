@@ -79,7 +79,7 @@ class Music(commands.Cog):
             raise commands.BadArgument("Provide a song name or supported link.")
         async with ctx.typing():
             tracks = await wavelink.Playable.search(
-                query, source=os.getenv("MUSIC_SEARCH_SOURCE", "ytmsearch")
+                query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
             )
             if not tracks:
                 await self.reply(ctx, "No tracks found. Try a song and artist name, or another supported link.")
@@ -105,6 +105,11 @@ class Music(commands.Cog):
                 return
             if radio:
                 player.autoplay = wavelink.AutoPlayMode.enabled
+                player.soundcloud_radio = added[0].source == "soundcloud"
+                player.radio_query = query if not query.startswith("http") else added[0].author
+                player.radio_seen = {added[0].identifier}
+                if player.soundcloud_radio:
+                    player.autoplay = wavelink.AutoPlayMode.disabled
             player.queue.put(added)
             if player.current is None:
                 await player.play(player.queue.get())
@@ -125,6 +130,11 @@ class Music(commands.Cog):
             if enabled and player.current is None:
                 raise commands.CheckFailure("Start radio with `!radio <song, artist, or mood>`.")
             player.autoplay = wavelink.AutoPlayMode.enabled if enabled else wavelink.AutoPlayMode.partial
+            player.soundcloud_radio = bool(enabled and player.current.source == "soundcloud")
+            if player.soundcloud_radio:
+                player.autoplay = wavelink.AutoPlayMode.disabled
+                player.radio_query = player.current.author
+                player.radio_seen = {player.current.identifier}
             if not enabled:
                 player.auto_queue.clear()
             await self.reply(ctx, "Radio on: recommendations follow your queue." if enabled else "Radio off: only queued songs will play.")
@@ -136,7 +146,8 @@ class Music(commands.Cog):
         player = self.player(ctx)
         lines = [f"Now: {title(player.current)}" if player.current else "Nothing playing."]
         lines.extend(f"{i}. {title(track)}" for i, track in enumerate(list(player.queue)[:10], 1))
-        lines.append(f"{len(player.queue)} queued · Radio {'on' if player.autoplay == wavelink.AutoPlayMode.enabled else 'off'}")
+        radio_on = player.autoplay == wavelink.AutoPlayMode.enabled or getattr(player, "soundcloud_radio", False)
+        lines.append(f"{len(player.queue)} queued · Radio {'on' if radio_on else 'off'}")
         await self.reply(ctx, "\n".join(lines))
 
     @commands.command(aliases=["np"], help="Show the current song.")
@@ -167,6 +178,7 @@ class Music(commands.Cog):
     @commands.command(help="Clear upcoming songs and turn radio off; keep the current song.")
     async def clear(self, ctx):
         player = self.player(ctx)
+        player.soundcloud_radio = False
         player.autoplay = wavelink.AutoPlayMode.partial
         player.queue.clear()
         player.auto_queue.clear()
@@ -182,6 +194,7 @@ class Music(commands.Cog):
     @commands.command(aliases=["leave", "disconnect"], help="Stop playback, discard the queue, and leave voice.")
     async def stop(self, ctx):
         player = self.player(ctx)
+        player.soundcloud_radio = False
         player.autoplay = wavelink.AutoPlayMode.disabled
         await player.disconnect()
         await self.reply(ctx, "Stopped and left voice.")
@@ -192,9 +205,59 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, payload):
-        channel = getattr(payload.player, "music_channel", None)
-        if channel:
-            await channel.send("Couldn't play that track. Try another source or `!skip`.", allowed_mentions=discord.AllowedMentions.none())
+        player = payload.player
+        if player is None or getattr(player, "music_failed", False):
+            return
+        player.music_failed = True
+        player.soundcloud_radio = False
+        player.autoplay = wavelink.AutoPlayMode.disabled
+        player.queue.clear()
+        player.auto_queue.clear()
+        try:
+            await player.disconnect()
+        finally:
+            channel = getattr(player, "music_channel", None)
+            if channel:
+                await channel.send(
+                    "The source refused playback. Stopped music and radio to avoid repeated failures. "
+                    "Try `!play <song name>` or `!radio chill jazz` for SoundCloud, or another supported link.",
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_end(self, payload):
+        player = payload.player
+        if player is None or not getattr(player, "soundcloud_radio", False):
+            return
+        if payload.reason not in ("finished", "stopped"):
+            return
+        async with self.locks[player.guild.id]:
+            if not player.connected or not player.soundcloud_radio:
+                return
+            if player.queue:
+                next_track = player.queue.get()
+            else:
+                # Wavelink's native recommendations only support YouTube/Spotify.
+                # SoundCloud radio uses fresh search results for the seed, then artist.
+                candidates = []
+                for query in dict.fromkeys([player.radio_query, payload.track.author]):
+                    try:
+                        results = await wavelink.Playable.search(query, source="scsearch")
+                    except wavelink.WavelinkException:
+                        continue
+                    candidates = [t for t in results if t.identifier not in player.radio_seen]
+                    if candidates:
+                        break
+                if not candidates:
+                    player.soundcloud_radio = False
+                    player.autoplay = wavelink.AutoPlayMode.partial
+                    await player.music_channel.send("Radio ran out of fresh matches. Start a new station with `!radio <artist or mood>`.", allowed_mentions=discord.AllowedMentions.none())
+                    return
+                next_track = candidates[0]
+            if not player.connected or not player.soundcloud_radio:
+                return
+            player.radio_seen.add(next_track.identifier)
+            await player.play(next_track)
 
     async def cog_command_error(self, ctx, error):
         error = getattr(error, "original", error)

@@ -2,6 +2,10 @@
 
 The existing quote commands, quote cards, and daily quotes remain available.
 Music uses a separate Lavalink v4 audio service and Wavelink for Discord control.
+Text searches default to SoundCloud because YouTube can require login from hosted
+servers. SoundCloud radio searches for new seed/artist matches, avoids repeats,
+and stops when there are no fresh matches. Playback errors stop the session with
+one notice, rather than cycling through failing recommendations.
 Python 3.10+ is required. Music is optional: without the two Lavalink variables,
 the bot starts normally and explains how to enable music when a music command is used.
 

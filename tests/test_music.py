@@ -118,6 +118,38 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.cog_command_error(self.ctx, wavelink.InvalidNodeException())
         self.assertIn("unavailable", self.ctx.reply.call_args.args[0])
 
+    async def test_failure_stops_radio_and_only_notifies_once(self):
+        self.player.music_failed = False
+        self.player.music_channel = SimpleNamespace(send=AsyncMock())
+        self.player.queue.put(track())
+        self.player.auto_queue.put(track())
+        payload = SimpleNamespace(player=self.player)
+        await asyncio.gather(self.cog.on_wavelink_track_exception(payload), self.cog.on_wavelink_track_exception(payload))
+        self.player.disconnect.assert_awaited_once()
+        self.player.music_channel.send.assert_awaited_once()
+        self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.disabled)
+        self.assertFalse(self.player.soundcloud_radio)
+        self.assertEqual(len(self.player.queue) + len(self.player.auto_queue), 0)
+
+    async def test_soundcloud_radio_avoids_repeats_and_prioritizes_queue(self):
+        self.player.soundcloud_radio = True
+        self.player.connected = True
+        self.player.guild = SimpleNamespace(id=1)
+        self.player.radio_query = "jazz"
+        self.player.radio_seen = {"played"}
+        payload = SimpleNamespace(player=self.player, reason="finished", track=track("played"))
+        fresh = track("fresh")
+        with patch("music.wavelink.Playable.search", AsyncMock(return_value=[track("played"), fresh])) as search:
+            await self.cog.on_wavelink_track_end(payload)
+            self.player.play.assert_awaited_with(fresh)
+            search.assert_awaited_once_with("jazz", source="scsearch")
+        requested = track("requested")
+        self.player.queue.put(requested)
+        with patch("music.wavelink.Playable.search", AsyncMock()) as search:
+            await self.cog.on_wavelink_track_end(payload)
+            search.assert_not_awaited()
+            self.player.play.assert_awaited_with(requested)
+
     async def test_stop_disables_radio_and_disconnects(self):
         await Music.stop.callback(self.cog, self.ctx)
         self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.disabled)
