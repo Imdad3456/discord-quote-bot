@@ -5,6 +5,9 @@ import os
 from aiohttp import web
 import wavelink
 
+from music_selection import normalize_query, select_tracks
+from spotify_resolver import parse_spotify_url
+
 
 PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Quote Bot Music</title><style>
@@ -15,13 +18,16 @@ body{max-width:920px;margin:auto;padding:32px 18px}h1{font-size:30px;margin:0 0 
 button,input{border:1px solid #354056;border-radius:9px;background:#202737;color:white;padding:10px 14px;font:inherit}
 button{cursor:pointer}button:hover{background:#2d3850}.danger{border-color:#7d3440}ol{padding-left:25px}li{padding:5px}
 .empty{text-align:center;padding:42px}.pill{font-size:12px;background:#243149;padding:4px 8px;border-radius:99px}
+.search{display:flex;gap:9px;margin:15px 0}.search input{flex:1;min-width:180px}.status{min-height:22px;margin:8px 0;color:#9cd3ff}
 </style></head><body><h1>Quote Bot Music</h1><div class="muted">Live players and queues</div><main id="app"></main>
 <script>
 const token=location.pathname.split('/').filter(Boolean).pop();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function act(guild,action,value){await fetch(`/api/${token}/control`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({guild,action,value})});refresh()}
+async function act(guild,action,value){let r=await fetch(`/api/${token}/control`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({guild,action,value})});let body=await r.text(),d;try{d=JSON.parse(body)}catch{d={error:body||'Request failed'}}let s=document.querySelector(`#s${guild}`);if(s)s.textContent=d.message||d.error||'';if(r.ok)setTimeout(refresh,2500)}
+function add(guild){let input=document.querySelector(`#q${guild}`),query=input.value.trim();if(!query)return;act(guild,'play',query);input.value=''}
 function card(p){return `<section class=card><div class=row><h2>${esc(p.guild)}</h2><span class=pill>${p.connected?'Connected':'Idle'}</span></div>
 <div class=muted>Now playing</div><div class=now>${p.current?esc(p.current.title)+' · '+esc(p.current.author):'Nothing playing'}</div>
+<div class=search><input id="q${p.guild_id}" placeholder="Song name, YouTube link, or Spotify link" onkeydown="if(event.key==='Enter')add('${p.guild_id}')"><button onclick="add('${p.guild_id}')">Search & add</button></div><div class=status id="s${p.guild_id}"></div>
 <div class=row><button onclick="act('${p.guild_id}','pause')">Pause</button><button onclick="act('${p.guild_id}','resume')">Resume</button>
 <button onclick="act('${p.guild_id}','skip')">Skip</button><button onclick="act('${p.guild_id}','shuffle')">Shuffle</button>
 <button onclick="act('${p.guild_id}','clear')">Clear queue</button><button class=danger onclick="act('${p.guild_id}','stop')">Stop</button>
@@ -75,7 +81,10 @@ class Dashboard:
         if not isinstance(player, wavelink.Player):
             raise web.HTTPNotFound(text="Player not found")
         action = data.get("action")
-        if action == "pause":
+        message = "Done."
+        if action == "play":
+            message = await self.add_tracks(player, data.get("value", ""))
+        elif action == "pause":
             await player.pause(True)
         elif action == "resume":
             await player.pause(False)
@@ -94,7 +103,39 @@ class Dashboard:
             await player.set_volume(max(0, min(100, int(data.get("value", 50)))))
         else:
             raise web.HTTPBadRequest(text="Unknown action")
-        return web.json_response({"ok": True})
+        return web.json_response({"ok": True, "message": message})
+
+    async def add_tracks(self, player, raw_query):
+        query = normalize_query(str(raw_query))
+        if not query:
+            raise web.HTTPBadRequest(text="Enter a song name or link.")
+        music = self.bot.get_cog("Music")
+        if music is None:
+            raise web.HTTPServiceUnavailable(text="Music is still starting.")
+        async with music.locks[player.guild.id]:
+            try:
+                spotify_link = bool(parse_spotify_url(query))
+                if spotify_link:
+                    tracks = await music.spotify_tracks(query)
+                else:
+                    tracks = await wavelink.Playable.search(
+                        query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
+                    )
+                    if not query.startswith(("https://", "http://")) and not isinstance(tracks, wavelink.Playlist):
+                        tracks = select_tracks(tracks, query)
+            except Exception as error:
+                raise web.HTTPBadGateway(text=f"Could not load that song or link: {type(error).__name__}") from error
+            if not tracks:
+                raise web.HTTPNotFound(text="No matching tracks found.")
+            selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else (tracks if spotify_link else tracks[:1])
+            room = max(0, 200 - len(player.queue))
+            added = selected[:room]
+            if not added:
+                raise web.HTTPConflict(text="The queue is full.")
+            player.queue.put(added)
+            if player.current is None:
+                await player.play(player.queue.get())
+            return f"Added {len(added)} song(s): {added[0].title}"
 
     async def start(self):
         if not self.token:
