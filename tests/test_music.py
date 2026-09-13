@@ -155,6 +155,23 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         self.player.disconnect.assert_awaited_once()
         self.assertEqual(len(self.player.queue), 0)
 
+    async def test_failed_youtube_stream_uses_metadata_for_soundcloud_fallback(self):
+        failed = track("Stateside")
+        failed._author = "PinkPantheress - Topic"
+        mirror = track("Stateside")
+        mirror._author = "PinkPantheress"
+        mirror._source = "soundcloud"
+        self.player.music_recovering = False
+        self.player.music_failures = 0
+        self.player.music_channel = SimpleNamespace(send=AsyncMock())
+
+        with patch("music.wavelink.Playable.search", AsyncMock(return_value=[mirror])) as search:
+            await self.cog.on_wavelink_track_exception(SimpleNamespace(player=self.player, track=failed))
+
+        search.assert_awaited_once_with("PinkPantheress - Stateside", source="scsearch")
+        self.player.play.assert_awaited_once_with(mirror)
+        self.player.music_channel.send.assert_awaited_once()
+
     async def test_soundcloud_radio_avoids_repeats_and_prioritizes_queue(self):
         self.player.soundcloud_radio = True
         self.player.connected = True

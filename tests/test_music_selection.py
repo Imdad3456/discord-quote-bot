@@ -85,6 +85,16 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(provider(url), "YouTube")
         self.assertEqual(provider("https://youtube.com.evil.invalid/video"), "This source")
 
+    def test_youtube_radio_link_becomes_exact_video(self):
+        shared = (
+            r"[YouTube](https://www.youtube.com/watch?v=2hsD\_SuDd2A\&list=RD2hsD\_SuDd2A"
+            r"\&start\_radio=1)"
+        )
+        self.assertEqual(
+            normalize_query(shared),
+            "https://www.youtube.com/watch?v=2hsD_SuDd2A",
+        )
+
 
 class StationTests(unittest.IsolatedAsyncioTestCase):
     async def test_station_tries_next_song_after_bad_match(self):

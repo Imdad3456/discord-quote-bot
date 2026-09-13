@@ -3,7 +3,7 @@ import html
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 STATIONS = {
     "chill jazz": [
@@ -116,6 +116,20 @@ def normalize_query(value):
     if link:
         value = link.group(1)
     value = value.strip("<>").replace(r"\_", "_").replace(r"\&", "&")
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    if (host == "youtube.com" or host.endswith(".youtube.com")) and parsed.path == "/watch":
+        params = dict(parse_qsl(parsed.query))
+        if params.get("v"):
+            # YouTube shares radio recommendations as a watch URL carrying an
+            # RD playlist. Loading that URL as a playlist frequently requires
+            # a browser session; the video itself remains directly playable.
+            keep = {key: params[key] for key in ("v", "t") if key in params}
+            value = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(keep), ""))
+    elif host == "youtu.be":
+        params = dict(parse_qsl(parsed.query))
+        keep = {"t": params["t"]} if "t" in params else {}
+        value = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(keep), ""))
     return value
 
 

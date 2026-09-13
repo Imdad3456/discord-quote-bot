@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import random
+import re
 from collections import defaultdict, deque
 
 import discord
@@ -325,6 +326,27 @@ class Music(commands.Cog):
                     )
                 await player.play(next_track)
                 return
+            if failed_track is not None and getattr(failed_track, "source", "") == "youtube":
+                artist = re.sub(r"\s+-\s+Topic$", "", failed_track.author, flags=re.IGNORECASE)
+                query = f"{artist} - {failed_track.title}"
+                try:
+                    results = await wavelink.Playable.search(query, source="scsearch")
+                except wavelink.WavelinkException:
+                    results = []
+                matches = select_tracks(
+                    results,
+                    query,
+                    strict=True,
+                    expected_length=getattr(failed_track, "length", None),
+                )
+                if matches:
+                    if getattr(player, "music_channel", None):
+                        await player.music_channel.send(
+                            "YouTube refused the stream, so I switched to a matching SoundCloud upload.",
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                    await player.play(matches[0])
+                    return
             if player.queue and player.music_failures <= 10:
                 next_track = player.queue.get()
                 if player.music_failures == 1 and getattr(player, "music_channel", None):
