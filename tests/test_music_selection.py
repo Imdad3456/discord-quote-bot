@@ -17,7 +17,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(parse_spotify_url("https://open.spotify.com/playlist/abc?si=1"), ("playlist", "abc"))
         self.assertEqual(parse_spotify_url("https://open.spotify.com/intl-fr/track/xyz"), ("track", "xyz"))
         self.assertIsNone(parse_spotify_url("https://open.spotify.com.evil.invalid/track/xyz"))
-        self.assertEqual(track_query({"name": "Song", "artists": [{"name": "Artist"}]}), "Artist Song")
+        self.assertEqual(track_query({"name": "Song", "artists": [{"name": "Artist"}]}), "Artist - Song")
         self.assertIsNone(track_query({"type": "episode", "name": "Podcast", "artists": []}))
 
     def test_spotify_embed_track_list(self):
@@ -28,15 +28,21 @@ class SelectionTests(unittest.TestCase):
             ]
         }}}}}}
         html = '<script id="__NEXT_DATA__" type="application/json">' + __import__("json").dumps(payload) + "</script>"
-        self.assertEqual(embed_queries(html), [("Imagine Dragons Thunder", None)])
+        self.assertEqual(embed_queries(html), [("Imagine Dragons - Thunder", None)])
 
     def test_spotify_match_requires_original_duration(self):
         original = candidate("Thunder", author="Imagine Dragons", length=187000)
         remix = candidate("Thunder", author="DJ Upload", length=245000)
         self.assertEqual(
-            select_tracks([remix, original], "Imagine Dragons Thunder", strict=True, expected_length=187146),
+            select_tracks([remix, original], "Imagine Dragons - Thunder", strict=True, expected_length=187146),
             [original],
         )
+
+    def test_strict_artist_match_rejects_cover_and_wrong_artist(self):
+        original = candidate("Thunder", author="Imagine Dragons - Topic")
+        cover = candidate("Thunder", author="Rock Covers")
+        wrong = candidate("Thunder", author="Gabry Ponte")
+        self.assertEqual(select_tracks([wrong, cover, original], "Imagine Dragons - Thunder", strict=True), [original])
 
     def test_user_station_intents(self):
         self.assertEqual(station_name("white girl pop"), "pop")

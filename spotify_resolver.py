@@ -42,7 +42,7 @@ def track_query(item):
     artists = [artist.get("name") for artist in item.get("artists", []) if artist.get("name")]
     if not name or not artists:
         return None
-    return f"{' '.join(artists)} {name}"
+    return f"{' '.join(artists)} - {name}"
 
 
 def track_candidate(item):
@@ -64,7 +64,7 @@ def embed_queries(document, limit=200):
         return []
     items = entity.get("trackList") or [entity]
     return [
-        (f'{item["subtitle"]} {item["title"]}', item.get("duration"))
+        (f'{item["subtitle"]} - {item["title"]}', item.get("duration"))
         for item in items[:limit]
         if item.get("entityType") == "track" and item.get("title") and item.get("subtitle")
     ]

@@ -138,11 +138,18 @@ def tokens(value):
     return set(re.findall(r"[a-z0-9]+", value.lower())) - {"the", "a", "and", "feat", "ft", "official", "audio", "lyrics"}
 
 
+def expected_parts(query):
+    parts = re.split(r"\s+[-–—]\s+", query, maxsplit=1)
+    return (tokens(parts[0]), tokens(parts[1])) if len(parts) == 2 else (set(), tokens(query))
+
+
 def select_tracks(tracks, query, *, strict=False, expected_length=None):
     wanted = tokens(query)
+    expected_artist, expected_title = expected_parts(query)
     ranked = []
     for track in tracks:
         words = tokens(track.title)
+        author_words = tokens(track.author)
         if words & {"preview", "snippet", "teaser", "sample"}:
             continue
         if words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed", "medley", "mashup",
@@ -156,8 +163,17 @@ def select_tracks(tracks, query, *, strict=False, expected_length=None):
             tolerance = max(12000, expected_length * 0.08)
             if abs(track.length - expected_length) > tolerance:
                 continue
-        matched = len(wanted & tokens(track.title + " " + track.author)) / max(1, len(wanted))
-        if strict and matched < 0.65:
+        combined = tokens(track.title + " " + track.author)
+        matched = len(wanted & combined) / max(1, len(wanted))
+        title_match = len(expected_title & words) / max(1, len(expected_title))
+        artist_in_author = len(expected_artist & author_words) / max(1, len(expected_artist)) if expected_artist else 0
+        artist_anywhere = len(expected_artist & combined) / max(1, len(expected_artist)) if expected_artist else 0
+        uploader_penalty = bool(author_words & {"cover", "covers", "tribute", "karaoke", "remix"})
+        if expected_artist and strict and (artist_anywhere < 0.6 or title_match < 0.65 or uploader_penalty):
             continue
-        ranked.append((matched, track))
+        if strict and not expected_artist and matched < 0.65:
+            continue
+        official_bonus = 0.12 if ("vevo" in track.author.lower() or "- topic" in track.author.lower()) else 0
+        score = title_match * 0.55 + artist_in_author * 0.35 + artist_anywhere * 0.1 + official_bonus if expected_artist else matched
+        ranked.append((score, track))
     return [t for _, t in sorted(ranked, key=lambda pair: pair[0], reverse=True)]
