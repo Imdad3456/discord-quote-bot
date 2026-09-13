@@ -246,6 +246,29 @@ async def sync_quotes(ctx):
     await ctx.reply(f"Sync complete: added {added} new quote(s) from channel history.")
 
 
+@bot.command(name="dashboard", help="DM the private music dashboard link to a server manager.")
+@commands.has_permissions(manage_guild=True)
+async def dashboard_link(ctx):
+    dashboard_token = os.getenv("DASHBOARD_TOKEN", "")
+    public_url = os.getenv("DASHBOARD_PUBLIC_URL", "").rstrip("/")
+    if not public_url:
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        public_url = f"https://{railway_domain}" if railway_domain else ""
+    if not dashboard_token or not public_url:
+        await ctx.reply("The music dashboard URL is not configured yet.", mention_author=False)
+        return
+    url = f"{public_url}/{dashboard_token}"
+    try:
+        await ctx.author.send(
+            f"**Quote Bot Music Dashboard**\n<{url}>\n\nKeep this link private—it grants music control.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except discord.Forbidden:
+        await ctx.reply("I couldn't DM you. Enable direct messages for this server and try again.", mention_author=False)
+        return
+    await ctx.reply("I sent the private dashboard link to your DMs.", mention_author=False)
+
+
 @bot.command(name="quotebook")
 @commands.has_permissions(manage_messages=True)
 async def quotebook(ctx):
@@ -410,6 +433,7 @@ async def export_nicknames(ctx):
 
 
 @sync_quotes.error
+@dashboard_link.error
 @quotebook.error
 @setname.error
 @import_names.error

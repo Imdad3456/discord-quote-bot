@@ -70,6 +70,9 @@ Set a long random `DASHBOARD_TOKEN` on the bot service and expose its `PORT` wit
 a Railway public domain. Open `https://your-domain/<DASHBOARD_TOKEN>` to see live
 players and queues and control pause, resume, skip, shuffle, clear, stop, and volume.
 Keep the complete dashboard URL private because the token grants music control.
+Server managers can use `!dashboard` to receive the private link by DM. Railway
+provides `RAILWAY_PUBLIC_DOMAIN` automatically; on another host, set
+`DASHBOARD_PUBLIC_URL` to the dashboard's public origin.
 
 ## Supported sources
 
