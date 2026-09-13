@@ -37,6 +37,9 @@ plugins:
       enabled: "${YOUTUBE_OAUTH_ENABLED:false}"
       refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
       skipInitialization: "${YOUTUBE_OAUTH_SKIP_INITIALIZATION:false}"
+    remoteCipher:
+      url: "https://cipher.kikkia.dev/"
+      userAgent: "discord-quote-bot"
   lavasrc:
     providers:
       - "scsearch:%QUERY%"
