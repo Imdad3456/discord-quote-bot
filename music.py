@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 import discord
 import wavelink
 from discord.ext import commands
-from music_selection import STATIONS, normalize_query, provider, select_tracks, station_name
+from music_selection import STATIONS, normalize_query, provider, select_tracks, soundcloud_order, station_name
 from spotify_resolver import SpotifyResolver, parse_spotify_url
 
 log = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ class Music(commands.Cog):
                     }.get(source, "This source could not load that link. It may be unavailable or restricted.")
                     raise commands.BadArgument(detail) from error
                 if not query.startswith(("https://", "http://")) and not isinstance(tracks, wavelink.Playlist):
-                    tracks = select_tracks(tracks, query)
+                    tracks = soundcloud_order(tracks, query)
             if not tracks:
                 await self.reply(ctx, "No tracks found. Try a song and artist name, or another supported link.")
                 return
@@ -333,12 +333,7 @@ class Music(commands.Cog):
                     results = await wavelink.Playable.search(query, source="scsearch")
                 except wavelink.WavelinkException:
                     results = []
-                matches = select_tracks(
-                    results,
-                    query,
-                    strict=True,
-                    expected_length=getattr(failed_track, "length", None),
-                )
+                matches = soundcloud_order(results, query)
                 if matches:
                     if getattr(player, "music_channel", None):
                         await player.music_channel.send(

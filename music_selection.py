@@ -235,3 +235,9 @@ def select_tracks(tracks, query, *, strict=False, expected_length=None):
         score = track_score(track, query, expected_length)
         ranked.append((score, track))
     return [t for _, t in sorted(ranked, key=lambda pair: pair[0], reverse=True)]
+
+
+def soundcloud_order(tracks, query):
+    """Keep SoundCloud relevance order while removing results that cannot be songs."""
+    accepted = {id(track) for track in select_tracks(tracks, query)}
+    return [track for track in tracks if id(track) in accepted]

@@ -8,7 +8,7 @@ from aiohttp import web
 import discord
 import wavelink
 
-from music_selection import STATIONS, normalize_query, select_tracks, station_name
+from music_selection import STATIONS, normalize_query, select_tracks, soundcloud_order, station_name
 from spotify_resolver import parse_spotify_url
 
 
@@ -179,7 +179,7 @@ class Dashboard:
                         query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
                     )
                     if not query.startswith(("https://", "http://")) and not isinstance(tracks, wavelink.Playlist):
-                        tracks = select_tracks(tracks, query)
+                        tracks = soundcloud_order(tracks, query)
             except Exception as error:
                 raise web.HTTPBadGateway(text=f"Could not load that song or link: {type(error).__name__}") from error
             if not tracks:

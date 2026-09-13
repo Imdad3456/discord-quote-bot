@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from collections import deque
 
-from music_selection import normalize_query, provider, select_tracks, station_name, track_score
+from music_selection import normalize_query, provider, select_tracks, soundcloud_order, station_name, track_score
 from music import Music
 from spotify_resolver import embed_queries, parse_spotify_url, track_query
 
@@ -77,6 +77,11 @@ class SelectionTests(unittest.TestCase):
             select_tracks([remix, original], "PinkPantheress - Stateside", expected_length=177000),
             [original, remix],
         )
+
+    def test_soundcloud_order_keeps_provider_first_result(self):
+        first = candidate("Stateside", author="Popular SoundCloud uploader")
+        official = candidate("Stateside", author="PinkPantheress - Topic")
+        self.assertEqual(soundcloud_order([first, official], "stateside"), [first, official])
 
     def test_discord_link_wrappers_and_host_validation(self):
         url = "https://www.youtube.com/watch?v=Y3jq_WIHP9k"
