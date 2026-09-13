@@ -23,11 +23,16 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     clients:
-      - TVHTML5_SIMPLY
-      - TV
+      # WEB resolves metadata/ciphers; TV then uses the configured OAuth token
+      # for authenticated playback. Remaining clients provide format fallbacks.
       - WEB
-      - WEBEMBEDDED
+      - TV
+      - MWEB
       - ANDROID_VR
+      - WEBEMBEDDED
+      - ANDROID_MUSIC
+      - IOS
+      - TVHTML5_SIMPLY
     oauth:
       enabled: "${YOUTUBE_OAUTH_ENABLED:false}"
       refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
