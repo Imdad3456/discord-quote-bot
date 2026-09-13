@@ -2,6 +2,7 @@
 import html
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from urllib.parse import urlsplit
 
 STATIONS = {
@@ -143,6 +144,51 @@ def expected_parts(query):
     return (tokens(parts[0]), tokens(parts[1])) if len(parts) == 2 else (set(), tokens(query))
 
 
+VERSION_PENALTIES = {
+    "live": 20,
+    "cover": 25,
+    "nightcore": 30,
+    "sped": 30,
+    "slowed": 30,
+    "remix": 20,
+    "karaoke": 40,
+    "instrumental": 30,
+    "medley": 30,
+    "mashup": 30,
+    "tribute": 30,
+}
+
+
+def similarity(expected, actual):
+    """Blend word coverage with spelling similarity into a stable 0..1 score."""
+    if not expected:
+        return 0.0
+    overlap = len(expected & actual) / len(expected)
+    left, right = " ".join(sorted(expected)), " ".join(sorted(actual))
+    fuzzy = SequenceMatcher(None, left, right).ratio()
+    return max(overlap, fuzzy * 0.85)
+
+
+def track_score(track, query, expected_length=None):
+    """Score a search result by title, artist, duration, and upload quality."""
+    wanted = tokens(query)
+    expected_artist, expected_title = expected_parts(query)
+    title_words = tokens(track.title)
+    author_words = tokens(track.author)
+    title_points = 50 * similarity(expected_title, title_words)
+    artist_target = expected_artist or (wanted - title_words)
+    artist_points = 30 * similarity(artist_target, author_words) if artist_target else 0
+    duration_points = 0
+    if expected_length and not track.is_stream:
+        difference = abs(track.length - expected_length) / max(1, expected_length)
+        duration_points = 15 * max(0, 1 - difference / 0.15)
+    author = track.author.lower()
+    quality_points = (5 if "vevo" in author or "official" in author else 0) + (5 if "- topic" in author or "music" in author else 0)
+    text_words = tokens(track.title + " " + track.author)
+    penalties = sum(points for word, points in VERSION_PENALTIES.items() if word in text_words and word not in wanted)
+    return title_points + artist_points + duration_points + quality_points - penalties
+
+
 def select_tracks(tracks, query, *, strict=False, expected_length=None):
     wanted = tokens(query)
     expected_artist, expected_title = expected_parts(query)
@@ -152,8 +198,8 @@ def select_tracks(tracks, query, *, strict=False, expected_length=None):
         author_words = tokens(track.author)
         if words & {"preview", "snippet", "teaser", "sample"}:
             continue
-        if words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed", "medley", "mashup",
-                    "edit", "version", "bootleg", "rework", "tribute", "instrumental"} - wanted):
+        if strict and words & ({"remix", "mix", "cover", "karaoke", "sped", "slowed", "medley", "mashup",
+                               "edit", "version", "bootleg", "rework", "tribute", "instrumental"} - wanted):
             continue
         if strict and "/" in track.title and "/" not in query:
             continue
@@ -166,14 +212,12 @@ def select_tracks(tracks, query, *, strict=False, expected_length=None):
         combined = tokens(track.title + " " + track.author)
         matched = len(wanted & combined) / max(1, len(wanted))
         title_match = len(expected_title & words) / max(1, len(expected_title))
-        artist_in_author = len(expected_artist & author_words) / max(1, len(expected_artist)) if expected_artist else 0
         artist_anywhere = len(expected_artist & combined) / max(1, len(expected_artist)) if expected_artist else 0
         uploader_penalty = bool(author_words & {"cover", "covers", "tribute", "karaoke", "remix"})
         if expected_artist and strict and (artist_anywhere < 0.6 or title_match < 0.65 or uploader_penalty):
             continue
         if strict and not expected_artist and matched < 0.65:
             continue
-        official_bonus = 0.12 if ("vevo" in track.author.lower() or "- topic" in track.author.lower()) else 0
-        score = title_match * 0.55 + artist_in_author * 0.35 + artist_anywhere * 0.1 + official_bonus if expected_artist else matched
+        score = track_score(track, query, expected_length)
         ranked.append((score, track))
     return [t for _, t in sorted(ranked, key=lambda pair: pair[0], reverse=True)]

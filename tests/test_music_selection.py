@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from collections import deque
 
-from music_selection import normalize_query, provider, select_tracks, station_name
+from music_selection import normalize_query, provider, select_tracks, station_name, track_score
 from music import Music
 from spotify_resolver import embed_queries, parse_spotify_url, track_query
 
@@ -65,6 +65,18 @@ class SelectionTests(unittest.TestCase):
     def test_explicit_remix_is_allowed(self):
         remix = candidate("Come Away With Me Remix")
         self.assertEqual(select_tracks([remix], "Norah Jones Come Away With Me remix", strict=True), [remix])
+
+    def test_weighted_score_prefers_original_official_upload(self):
+        original = candidate("Stateside", author="PinkPantheress - Topic", length=177000)
+        remix = candidate("Stateside Remix", author="DJ Covers", length=230000)
+        self.assertGreater(
+            track_score(original, "PinkPantheress - Stateside", 177000),
+            track_score(remix, "PinkPantheress - Stateside", 177000),
+        )
+        self.assertEqual(
+            select_tracks([remix, original], "PinkPantheress - Stateside", expected_length=177000),
+            [original, remix],
+        )
 
     def test_discord_link_wrappers_and_host_validation(self):
         url = "https://www.youtube.com/watch?v=Y3jq_WIHP9k"
