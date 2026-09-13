@@ -127,6 +127,24 @@ class Music(commands.Cog):
             player.music_recovering = False
             player.music_channel = ctx.channel
             selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else (tracks if spotify_link else tracks[:1])
+            if not isinstance(getattr(player, "music_fallbacks", None), dict):
+                player.music_fallbacks = {}
+            # Search results can be discoverable while their SoundCloud stream is
+            # already gone. Keep close matches out of the visible queue and use
+            # them only if the selected mirror fails to start.
+            if (
+                not radio
+                and not spotify_link
+                and not query.startswith(("https://", "http://"))
+                and selected
+            ):
+                alternatives = [
+                    candidate for candidate in tracks[1:8]
+                    if candidate.identifier != selected[0].identifier
+                    and select_tracks([candidate], query, strict=True)
+                ][:4]
+                if alternatives:
+                    player.music_fallbacks[selected[0].identifier] = deque(alternatives)
             room = max(0, MAX_QUEUE - len(player.queue))
             added = selected[:room]
             if not added:
@@ -293,6 +311,20 @@ class Music(commands.Cog):
         player.music_recovering = True
         player.music_failures = getattr(player, "music_failures", 0) + 1
         try:
+            failed_track = getattr(payload, "track", None)
+            fallbacks = getattr(player, "music_fallbacks", {})
+            mirrors = fallbacks.pop(getattr(failed_track, "identifier", None), deque())
+            if mirrors:
+                next_track = mirrors.popleft()
+                if mirrors:
+                    fallbacks[next_track.identifier] = mirrors
+                if player.music_failures == 1 and getattr(player, "music_channel", None):
+                    await player.music_channel.send(
+                        "That upload was unavailable, so I switched to another matching result.",
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                await player.play(next_track)
+                return
             if player.queue and player.music_failures <= 10:
                 next_track = player.queue.get()
                 if player.music_failures == 1 and getattr(player, "music_channel", None):

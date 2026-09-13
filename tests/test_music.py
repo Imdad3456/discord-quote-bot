@@ -1,6 +1,7 @@
 import asyncio
 import os
 import unittest
+from collections import deque
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -42,11 +43,25 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         self.ctx.reply = AsyncMock()
 
     async def test_search_plays_first_result_and_leaves_other_results_out(self):
-        first, second = track(), track("Second")
+        first, second = track("Song"), track("Song alternate")
         with patch("music.wavelink.Playable.search", AsyncMock(return_value=[first, second])):
             await self.cog.enqueue(self.ctx, "song")
         self.player.play.assert_awaited_once_with(first)
         self.assertEqual(len(self.player.queue), 0)
+        self.assertEqual(list(self.player.music_fallbacks[first.identifier]), [second])
+
+    async def test_failed_search_result_uses_hidden_matching_fallback(self):
+        first, second = track("Stateside"), track("Stateside alternate")
+        self.player.music_recovering = False
+        self.player.music_failures = 0
+        self.player.music_channel = SimpleNamespace(send=AsyncMock())
+        self.player.music_fallbacks = {first.identifier: deque([second])}
+
+        await self.cog.on_wavelink_track_exception(SimpleNamespace(player=self.player, track=first))
+
+        self.player.play.assert_awaited_once_with(second)
+        self.player.disconnect.assert_not_awaited()
+        self.player.music_channel.send.assert_awaited_once()
 
     async def test_playlist_order_and_queue_cap(self):
         playlist = MagicMock(spec=wavelink.Playlist)
