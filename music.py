@@ -196,7 +196,8 @@ class Music(commands.Cog):
 
     @commands.command(help="List curated radio stations.")
     async def stations(self, ctx):
-        await self.reply(ctx, "Stations: `!radio chill jazz`, `!radio pop`, `!radio white girl pop`, `!radio 2015 hits`. A new station starts immediately; requested songs stay queued.")
+        names = ", ".join(f"`{name}`" for name in STATIONS)
+        await self.reply(ctx, f"**Radio stations:** {names}\nUse `!radio <station>`. A new station starts immediately; requested songs stay queued.")
 
     @commands.command(name="play", aliases=["p"], help="Play a song name, track URL, or playlist URL.")
     async def play(self, ctx, *, query: str):

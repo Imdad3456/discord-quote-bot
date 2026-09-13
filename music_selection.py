@@ -26,10 +26,87 @@ STATIONS = {
         "Major Lazer DJ Snake Lean On", "Adele Hello", "OMI Cheerleader",
         "Ed Sheeran Thinking Out Loud", "Maroon 5 Sugar", "Wiz Khalifa See You Again",
     ],
+    "hip hop": [
+        "Kendrick Lamar HUMBLE", "Drake God's Plan", "Travis Scott SICKO MODE",
+        "J Cole No Role Modelz", "Kanye West Stronger", "Outkast Ms Jackson",
+        "50 Cent In Da Club", "Lil Uzi Vert XO TOUR Llif3",
+    ],
+    "r&b": [
+        "SZA Snooze", "Frank Ocean Thinkin Bout You", "The Weeknd Die For You",
+        "Usher U Got It Bad", "Alicia Keys If I Ain't Got You", "Brent Faiyaz Clouded",
+        "Daniel Caesar Best Part", "Beyonce Cuff It",
+    ],
+    "rock classics": [
+        "Queen Don't Stop Me Now", "Fleetwood Mac Dreams", "ACDC Back In Black",
+        "Bon Jovi Livin On A Prayer", "Guns N Roses Sweet Child O Mine",
+        "Journey Don't Stop Believin", "The Eagles Hotel California", "Nirvana Come As You Are",
+    ],
+    "indie": [
+        "Arctic Monkeys Do I Wanna Know", "Tame Impala The Less I Know The Better",
+        "The Strokes Last Nite", "MGMT Electric Feel", "Cage The Elephant Cigarette Daydreams",
+        "The 1975 Somebody Else", "Vampire Weekend A Punk", "Beach House Space Song",
+    ],
+    "electronic": [
+        "Daft Punk One More Time", "Avicii Levels", "Calvin Harris Feel So Close",
+        "Disclosure Latch", "Zedd Clarity", "Swedish House Mafia Don't You Worry Child",
+        "David Guetta Titanium", "Martin Garrix Animals",
+    ],
+    "afrobeats": [
+        "Burna Boy Last Last", "Wizkid Essence", "Rema Calm Down", "Tems Free Mind",
+        "Davido Fall", "Ayra Starr Rush", "Fireboy DML Peru", "Asake Lonely At The Top",
+    ],
+    "latin": [
+        "Bad Bunny Tití Me Preguntó", "Karol G Provenza", "Daddy Yankee Gasolina",
+        "J Balvin Mi Gente", "Shakira Hips Don't Lie", "Luis Fonsi Despacito",
+        "Rosalia Despecha", "Enrique Iglesias Bailando",
+    ],
+    "country": [
+        "Chris Stapleton Tennessee Whiskey", "Dolly Parton Jolene", "Luke Combs Beautiful Crazy",
+        "Shania Twain Man I Feel Like A Woman", "Morgan Wallen Last Night",
+        "Zach Bryan Something in the Orange", "Johnny Cash Ring of Fire", "Kacey Musgraves Slow Burn",
+    ],
+    "reggae": [
+        "Bob Marley Three Little Birds", "Peter Tosh Legalize It", "UB40 Red Red Wine",
+        "Jimmy Cliff The Harder They Come", "Sean Paul Temperature", "Shaggy Angel",
+        "Damian Marley Welcome To Jamrock", "Toots and the Maytals Pressure Drop",
+    ],
+    "lo-fi": [
+        "idealism both of us", "jinsang affection", "potsu just friends",
+        "Kupla Kingdom in Blue", "SwuM This Again", "L'indécis Soulful",
+        "Nymano Solitude", "Tomppabeats Monday Loop",
+    ],
+    "80s hits": [
+        "A Ha Take On Me", "Michael Jackson Billie Jean", "Whitney Houston I Wanna Dance With Somebody",
+        "Toto Africa", "Prince Purple Rain", "Cyndi Lauper Girls Just Want to Have Fun",
+        "George Michael Faith", "Bonnie Tyler Total Eclipse of the Heart",
+    ],
+    "90s hits": [
+        "Backstreet Boys I Want It That Way", "TLC No Scrubs", "Britney Spears Baby One More Time",
+        "Spice Girls Wannabe", "Oasis Wonderwall", "Natalie Imbruglia Torn",
+        "MC Hammer U Can't Touch This", "No Doubt Don't Speak",
+    ],
+    "2000s throwbacks": [
+        "Beyonce Crazy In Love", "Outkast Hey Ya", "Rihanna Umbrella", "Nelly Hot In Herre",
+        "Kelly Clarkson Since U Been Gone", "Usher Yeah", "The Killers Mr Brightside",
+        "Gwen Stefani Hollaback Girl",
+    ],
+    "workout": [
+        "Eminem Till I Collapse", "Kanye West Power", "Dua Lipa Physical",
+        "Fort Minor Remember The Name", "Survivor Eye of the Tiger", "Macklemore Can't Hold Us",
+        "DMX X Gon Give It To Ya", "The Prodigy Breathe",
+    ],
+    "party": [
+        "Pitbull Give Me Everything", "LMFAO Party Rock Anthem", "Black Eyed Peas I Gotta Feeling",
+        "Flo Rida Low", "Kesha Tik Tok", "Taio Cruz Dynamite", "Sean Paul Get Busy",
+        "David Guetta Memories",
+    ],
 }
 ALIASES = {"white girl pop": "pop", "popular songs": "pop", "pop hits": "pop",
            "2015 most popular": "2015 hits", "2015 popular songs": "2015 hits",
-           "2015": "2015 hits", "jazz": "chill jazz", "smooth jazz": "chill jazz"}
+           "2015": "2015 hits", "jazz": "chill jazz", "smooth jazz": "chill jazz",
+           "rap": "hip hop", "hip-hop": "hip hop", "edm": "electronic",
+           "classic rock": "rock classics", "2000s": "2000s throwbacks",
+           "80s": "80s hits", "90s": "90s hits", "gym": "workout"}
 
 
 def normalize_query(value):
