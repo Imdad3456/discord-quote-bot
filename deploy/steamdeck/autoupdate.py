@@ -88,7 +88,7 @@ def deploy(retry=False):
         with tempfile.TemporaryDirectory(prefix='build-', dir=ROOT) as directory:
             archive = ROOT / 'source.tar'
             run('git', '-C', str(repo), 'archive', '--format=tar', '-o', str(archive), sha)
-            run('tar', '-xf', str(archive), '-C', directory)
+            run('tar', '--same-permissions', '-xf', str(archive), '-C', directory)
             archive.unlink()
             run('podman', 'build', '--label', 'org.opencontainers.image.revision=' + sha,
                 '-t', candidate['bot'], '-f', directory + '/deploy/steamdeck/Containerfile', directory)
@@ -96,6 +96,8 @@ def deploy(retry=False):
                 'python', '-m', 'unittest', 'discover', '-s', 'tests', '-v', timeout=120)
             run('podman', 'build', '--label', 'org.opencontainers.image.revision=' + sha,
                 '-t', candidate['lavalink'], directory + '/deploy/lavalink')
+            run('podman', 'run', '--rm', '--network', 'none', '--entrypoint', '/bin/sh',
+                candidate['lavalink'], '-c', 'test -r /opt/Lavalink/application.yml', timeout=30)
         switch(candidate, previous)
     except Exception as error:
         state.update(failed=sha, error=str(error), failed_at=int(time.time()))
