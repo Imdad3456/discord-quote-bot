@@ -169,3 +169,48 @@ Upstream references:
 - [Lavalink configuration](https://lavalink.dev/configuration/config/file)
 - [YouTube source plugin](https://github.com/lavalink-devs/youtube-source)
 - [LavaSrc sources and Spotify matching](https://github.com/topi314/LavaSrc)
+
+
+## Automatic GitHub deployment on the existing Steam Deck server
+
+The Deck checks the public `master` branch every two minutes. From your PC:
+
+```sh
+cd ~/Projects/discord-quote-bot
+git add <changed-files>
+git commit -m "Describe the change"
+git push origin master
+```
+
+No inbound port or GitHub SSH secret is required. Only pushed commits on `master`
+are deployed. A push triggers a build and offline tests on the next check, then a
+brief restart of the bot and Lavalink; active music queues are lost on restart.
+A failed build/test leaves the live bot running. A failed startup restores the
+previous images. The updater verifies the authenticated dashboard has a Discord
+guild and Lavalink responds; it cannot verify audible playback.
+
+Quotes, names, secrets, and daily backups remain outside the checkout under
+`~/server/discord-quote-bot`. A data backup runs before each rollout. Runtime
+rollback restores images, not data: schema changes need a compatible migration.
+This deployment expects a configured dashboard token and membership in a Discord
+server. Candidate containers are tested without network access or production secrets.
+
+On the Deck, `deploy/steamdeck/enable-autoupdate.sh` installs the updater for the
+existing `discord-quote-bot` and `discord-lavalink` Podman services. The older
+`install.sh` is for a fresh virtualenv installation and refuses to create a
+second bot alongside these services. Updater code itself is installed separately:
+rerun `enable-autoupdate.sh` on the Deck to upgrade it after reviewing changes.
+
+```sh
+systemctl --user list-timers discord-bot-update.timer
+journalctl --user -u discord-bot-update -n 60 --no-pager
+cat ~/server/discord-quote-bot/deploy-state.json
+systemctl --user start discord-bot-update.service  # check now
+systemctl --user stop discord-bot-update.timer    # pause polling
+```
+
+A failed revision is not repeatedly redeployed. Push a fix, or explicitly retry:
+`python3 ~/server/discord-quote-bot/deploy/autoupdate.py --retry`.
+The previous working images remain tagged `:previous`; build images are retained
+for diagnosis and can be pruned during maintenance. Keep the Deck powered,
+connected, and awake. Updates resume automatically when it is back online.

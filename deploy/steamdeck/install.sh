@@ -4,6 +4,10 @@
 # filesystem changes: Python lives in a venv, Lavalink runs in Podman, and
 # both start automatically as systemd user services.
 set -euo pipefail
+if systemctl --user cat discord-quote-bot.service >/dev/null 2>&1; then
+  echo "Existing Podman deployment found. Use deploy/steamdeck/enable-autoupdate.sh."
+  exit 1
+fi
 cd "$(dirname "$0")/../.."
 REPO="$PWD"
 UNITS="$HOME/.config/systemd/user"
