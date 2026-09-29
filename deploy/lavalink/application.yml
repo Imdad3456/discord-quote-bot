@@ -9,13 +9,12 @@ lavalink:
     password: "${LAVALINK_PASSWORD}"
     sources:
       youtube: false
-      soundcloud: true
+      soundcloud: false
       bandcamp: true
       twitch: true
       vimeo: true
       http: false
       local: false
-    soundcloudFilterOutPreviewTracks: true
 plugins:
   youtube:
     enabled: true
@@ -42,7 +41,6 @@ plugins:
       userAgent: "discord-quote-bot"
   lavasrc:
     providers:
-      - "scsearch:%QUERY%"
       - 'ytsearch:"%ISRC%"'
       - "ytsearch:%QUERY%"
     sources:

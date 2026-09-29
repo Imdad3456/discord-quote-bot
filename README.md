@@ -2,8 +2,8 @@
 
 The existing quote commands, quote cards, and daily quotes remain available.
 Music uses a separate Lavalink v4 audio service and Wavelink for Discord control.
-Text searches default to SoundCloud because YouTube can require login from hosted
-servers. Radio picks songs from Deezer's public recommendations (no API key):
+Text searches use authenticated YouTube. Radio picks songs from Deezer's public
+recommendations (no API key):
 `!radio drake` plays Drake mixed with similar artists, `!radio sza snooze` plays
 songs like that track, and `!radio sad songs` uses a curated mood playlist. As it
 plays, radio alternates between songs like the last track and songs like the
@@ -31,7 +31,7 @@ Spotify playlist access uses the account authorization helper in this repository
 Run `python spotify_authorize.py`, approve access in the browser, and store the
 result only in the bot service as `SPOTIFY_REFRESH_TOKEN`. Set that service's
 `SPOTIFY_CLIENT_ID` to the application client ID. The bot reads Spotify metadata
-and finds playable SoundCloud matches; it never streams audio from Spotify.
+and finds playable YouTube matches; it never streams audio from Spotify.
 
 Authenticated YouTube support is prepared but disabled. Set
 `YOUTUBE_OAUTH_ENABLED=true` on Lavalink to start the plugin's device flow. After
@@ -102,12 +102,12 @@ provides `RAILWAY_PUBLIC_DOMAIN` automatically; on another host, set
 
 ## Supported sources
 
-The included configuration enables YouTube/YouTube Music, SoundCloud, Bandcamp,
-Twitch, Vimeo, and Spotify metadata through LavaSrc. Source availability depends
+The included configuration enables YouTube/YouTube Music and Spotify metadata
+through LavaSrc. Source availability depends
 on the hosting IP, region, provider restrictions, and upstream plugin changes.
 No bot can promise every link will work.
 
-Spotify tracks, albums, and playlists are matched to audio on SoundCloud, rather
+Spotify tracks, albums, and playlists are matched to audio on YouTube, rather
 than streamed from Spotify. Matches may differ or fail. Account access requires
 `SPOTIFY_CLIENT_ID` and `SPOTIFY_REFRESH_TOKEN` on the bot service. Other services
 require additional plugins/configuration.
@@ -160,9 +160,8 @@ Live audio requires a Discord token and a running Lavalink instance; offline
 tests do not verify provider availability, recommendation quality, or voice transport.
 
 If YouTube fails, inspect the Lavalink logs and the YouTube plugin's documentation
-for current provider requirements. The default `MUSIC_SEARCH_SOURCE=ytsearch` is
-intentional: SoundCloud search results can expose streams that return 404 at play time.
-Set `MUSIC_SEARCH_SOURCE=scsearch` only when SoundCloud playback has been verified.
+for current provider requirements. SoundCloud is disabled because its streams
+returned 404 at play time on this server.
 If no recommendations are available, try a different seed or queue a playlist.
 
 Upstream references:

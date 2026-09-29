@@ -79,7 +79,8 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
     async def test_radio_seed_and_off_preserves_requested_queue(self):
         with patch("music.wavelink.Playable.search", AsyncMock(return_value=[track()])):
             await self.cog.enqueue(self.ctx, "song", radio=True)
-        self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.enabled)
+        self.assertTrue(self.player.recommendation_radio)
+        self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.disabled)
         self.player.queue.put(track("Requested"))
         self.player.auto_queue.put(track("Recommended"))
         await Music.radio.callback(self.cog, self.ctx, query="off")
@@ -155,12 +156,12 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         self.player.disconnect.assert_awaited_once()
         self.assertEqual(len(self.player.queue), 0)
 
-    async def test_failed_youtube_stream_uses_metadata_for_soundcloud_fallback(self):
+    async def test_failed_youtube_stream_uses_another_youtube_result(self):
         failed = track("Stateside")
         failed._author = "PinkPantheress - Topic"
         mirror = track("Stateside")
         mirror._author = "PinkPantheress"
-        mirror._source = "soundcloud"
+        mirror._source = "youtube"
         self.player.music_recovering = False
         self.player.music_failures = 0
         self.player.music_channel = SimpleNamespace(send=AsyncMock())
@@ -168,12 +169,12 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         with patch("music.wavelink.Playable.search", AsyncMock(return_value=[mirror])) as search:
             await self.cog.on_wavelink_track_exception(SimpleNamespace(player=self.player, track=failed))
 
-        search.assert_awaited_once_with("PinkPantheress - Stateside", source="scsearch")
+        search.assert_awaited_once_with("PinkPantheress - Stateside", source="ytsearch")
         self.player.play.assert_awaited_once_with(mirror)
         self.player.music_channel.send.assert_awaited_once()
 
-    async def test_soundcloud_radio_avoids_repeats_and_prioritizes_queue(self):
-        self.player.soundcloud_radio = True
+    async def test_recommendation_radio_avoids_repeats_and_prioritizes_queue(self):
+        self.player.recommendation_radio = True
         self.player.connected = True
         self.player.guild = SimpleNamespace(id=1)
         self.player.radio_query = "jazz"
@@ -196,7 +197,7 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
             t = track(ident)
             t._title, t._author, t._length = f"{artist} - {name}", artist, length
             return t
-        self.player.soundcloud_radio = True
+        self.player.recommendation_radio = True
         self.player.connected = True
         self.player.guild = SimpleNamespace(id=1)
         self.player.station_seeds = deque()
@@ -222,7 +223,7 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.player.radio_label, "songs like Dua Lipa")
 
     async def test_radio_uses_prefetched_song_without_searching(self):
-        self.player.soundcloud_radio = True
+        self.player.recommendation_radio = True
         self.player.connected = True
         self.player.guild = SimpleNamespace(id=1)
         self.player.radio_seen = {"played"}
