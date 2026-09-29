@@ -191,6 +191,49 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
             search.assert_not_awaited()
             self.player.play.assert_awaited_with(requested)
 
+    async def test_recommended_radio_skips_repeats_and_spreads_artists(self):
+        def upload(artist, name, ident, length=203000):
+            t = track(ident)
+            t._title, t._author, t._length = f"{artist} - {name}", artist, length
+            return t
+        self.player.soundcloud_radio = True
+        self.player.connected = True
+        self.player.guild = SimpleNamespace(id=1)
+        self.player.station_seeds = deque()
+        self.player.station_name = None
+        self.player.radio_seen = {"seed"}
+        self.cog.reset_radio(self.player, "Dua Lipa", None)
+        self.cog.remember(self.player, upload("Dua Lipa", "Levitating", "seed"))
+        songs = [("Dua Lipa - Levitating", 203000, 1), ("Dua Lipa - Cool", 209000, 1),
+                 ("Dua Lipa - Hallucinate", 208000, 1), ("Sia - The Greatest", 210000, 2),
+                 ("Katy Perry - Roar", 223000, 3), ("Tate McRae - greedy", 131000, 4),
+                 ("OneRepublic - Sunshine", 180000, 5)]
+        lengths = {query: length for query, length, _ in songs}
+        self.cog.recommender.for_query = AsyncMock(return_value=(songs, "songs like Dua Lipa"))
+        self.cog.recommender.similar_to = AsyncMock(return_value=[])
+
+        async def search(query, source):
+            artist, _, name = query.partition(" - ")
+            return [upload(artist, name, query, lengths[query])]
+        with patch("music.wavelink.Playable.search", AsyncMock(side_effect=search)):
+            picked = await self.cog.pick_recommendation(self.player)
+        # Levitating already played; Dua Lipa was just heard, so another artist comes first.
+        self.assertEqual(picked.title, "Sia - The Greatest")
+        self.assertEqual(self.player.radio_label, "songs like Dua Lipa")
+
+    async def test_radio_uses_prefetched_song_without_searching(self):
+        self.player.soundcloud_radio = True
+        self.player.connected = True
+        self.player.guild = SimpleNamespace(id=1)
+        self.player.radio_seen = {"played"}
+        ready = track("ready")
+        self.player.radio_next = ready
+        payload = SimpleNamespace(player=self.player, reason="finished", track=track("played"))
+        with patch("music.wavelink.Playable.search", AsyncMock()) as search:
+            await self.cog.on_wavelink_track_end(payload)
+        search.assert_not_awaited()
+        self.player.play.assert_awaited_with(ready)
+
     async def test_stop_disables_radio_and_disconnects(self):
         await Music.stop.callback(self.cog, self.ctx)
         self.assertEqual(self.player.autoplay, wavelink.AutoPlayMode.disabled)

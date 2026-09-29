@@ -3,8 +3,13 @@
 The existing quote commands, quote cards, and daily quotes remain available.
 Music uses a separate Lavalink v4 audio service and Wavelink for Discord control.
 Text searches default to SoundCloud because YouTube can require login from hosted
-servers. SoundCloud radio searches for new seed/artist matches, avoids repeats,
-and stops when there are no fresh matches. Playback errors stop the session with
+servers. Radio picks songs from Deezer's public recommendations (no API key):
+`!radio drake` plays Drake mixed with similar artists, `!radio sza snooze` plays
+songs like that track, and `!radio sad songs` uses a curated mood playlist. As it
+plays, radio alternates between songs like the last track and songs like the
+original seed, never repeats a song (even a different upload), spaces out repeat
+artists, skips slowed/sped/cover versions, and finds the next song while the
+current one plays. If Deezer is unreachable it falls back to searching the seed. Playback errors stop the session with
 one notice, rather than cycling through failing recommendations.
 
 `!stations` lists curated stations. `!radio pop`, `!radio white girl pop`,
@@ -12,7 +17,8 @@ one notice, rather than cycling through failing recommendations.
 the station words against a song title. `!play popular songs` and
 `!play 2015 most popular` also start those stations. Starting a new station
 replaces the current song while preserving songs explicitly queued with `!play`.
-Station lists are curated examples, not live charts; they stop when exhausted.
+Curated station songs play first; after that the station continues from a
+matching Deezer mood playlist instead of stopping.
 Search selection excludes previews, snippets, short samples, unsolicited remixes,
 and long compilations. Exact links are not subject to the search duration filter.
 
@@ -61,8 +67,8 @@ Each Discord server has its own queue, capped at 200 upcoming tracks. Commands
 are restricted to listeners in the bot's voice channel. The bot leaves after
 five minutes of inactivity. Queues are held in memory and do not survive restarts.
 Requested songs take priority over radio recommendations. A new radio query adds
-a seed to the queue; it does not interrupt the current song. Radio is related-track
-autoplay, not Spotify's personalized radio or a natural-language DJ.
+a seed to the queue; it does not interrupt the current song. `!queue` shows what
+radio is based on. Radio is related-track autoplay, not personalized per listener.
 
 ## Web dashboard
 

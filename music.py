@@ -10,10 +10,12 @@ import discord
 import wavelink
 from discord.ext import commands
 from music_selection import STATIONS, normalize_query, provider, select_tracks, soundcloud_order, station_name
+from recommender import Recommender, song_key, upload_key
 from spotify_resolver import SpotifyResolver, parse_spotify_url
 
 log = logging.getLogger(__name__)
 MAX_QUEUE = 200
+RECENT_ARTISTS = 4  # radio waits this many songs before repeating an artist
 
 
 def title(track):
@@ -25,7 +27,10 @@ class Music(commands.Cog):
         self.bot = bot
         self.connect_task = None
         self.locks = defaultdict(asyncio.Lock)
+        # Separate from command locks so a slow lookup never delays !skip etc.
+        self.radio_locks = defaultdict(asyncio.Lock)
         self.spotify = SpotifyResolver()
+        self.recommender = Recommender()
 
     async def cog_before_invoke(self, ctx):
         await self.locks[ctx.guild.id].acquire()
@@ -46,6 +51,7 @@ class Music(commands.Cog):
         if self.connect_task:
             self.connect_task.cancel()
             await asyncio.gather(self.connect_task, return_exceptions=True)
+        await self.recommender.close()
 
     async def connect_node(self):
         await self.bot.wait_until_ready()
@@ -160,6 +166,7 @@ class Music(commands.Cog):
                 player.radio_seen = {added[0].identifier}
                 if player.soundcloud_radio:
                     player.autoplay = wavelink.AutoPlayMode.disabled
+                    self.reset_radio(player, player.radio_query, station)
             if radio:
                 player.auto_queue.clear()
                 await player.play(added[0])
@@ -236,8 +243,12 @@ class Music(commands.Cog):
                 player.radio_query = player.current.author
                 player.radio_seen = {player.current.identifier}
                 player.station_seeds = deque()
+                player.station_name = None
+                self.reset_radio(player, f"{player.current.author} - {player.current.title}", None)
             if not enabled:
                 player.auto_queue.clear()
+                player.radio_next = None
+                player.radio_gen = getattr(player, "radio_gen", 0) + 1
             await self.reply(ctx, "Radio on: recommendations follow your queue." if enabled else "Radio off: only queued songs will play.")
         else:
             await self.enqueue(ctx, query, radio=True)
@@ -248,7 +259,8 @@ class Music(commands.Cog):
         lines = [f"Now: {title(player.current)}" if player.current else "Nothing playing."]
         lines.extend(f"{i}. {title(track)}" for i, track in enumerate(list(player.queue)[:10], 1))
         radio_on = player.autoplay == wavelink.AutoPlayMode.enabled or getattr(player, "soundcloud_radio", False)
-        lines.append(f"{len(player.queue)} queued · Radio {'on' if radio_on else 'off'}")
+        label = getattr(player, "radio_label", None) if getattr(player, "soundcloud_radio", False) else None
+        lines.append(f"{len(player.queue)} queued · Radio {'on' if radio_on else 'off'}" + (f" ({label})" if label else ""))
         await self.reply(ctx, "\n".join(lines))
 
     @commands.command(aliases=["np"], help="Show the current song.")
@@ -365,10 +377,126 @@ class Music(commands.Cog):
         finally:
             player.music_recovering = False
 
+    def reset_radio(self, player, query, station):
+        """Fresh recommendation state for a new radio seed or station."""
+        player.radio_gen = getattr(player, "radio_gen", 0) + 1
+        player.radio_query = query
+        player.radio_pool = deque()
+        player.radio_played = set()
+        player.radio_recent_artists = deque(maxlen=RECENT_ARTISTS)
+        player.radio_next = None
+        player.radio_refills = 0
+        player.radio_label = f"{station} station" if station else None
+
+    def radio_active(self, player):
+        return getattr(player, "soundcloud_radio", False) is True and hasattr(player, "radio_pool")
+
+    def remember(self, player, track):
+        """Record a started song so radio neither repeats it nor over-plays its artist."""
+        key = upload_key(track)
+        if key:
+            player.radio_played.add(key)
+            player.radio_recent_artists.append(key.split("|", 1)[1])
+        player.radio_seen.add(track.identifier)
+
+    async def refill(self, player, last=None):
+        """Top up the pool, alternating 'like the last song' with 'like the original seed'.
+
+        Following the last song lets radio drift naturally like Spotify's;
+        returning to the seed every other refill stops it wandering off-genre.
+        """
+        player.radio_refills += 1
+        station = getattr(player, "station_name", None)
+        if last is not None and player.radio_refills % 2 == 0:
+            artist = re.sub(r"\s+-\s+Topic$", "", last.author, flags=re.IGNORECASE)
+            songs = await self.recommender.similar_to(artist, last.title)
+        elif station:
+            songs = await self.recommender.mood(station)
+        else:
+            songs, label = await self.recommender.for_query(player.radio_query)
+            player.radio_label = player.radio_label or label
+        for query, length, _ in songs:
+            artist, _, title = query.partition(" - ")
+            key = song_key(artist, title)
+            if key and key not in player.radio_played:
+                player.radio_pool.append((query, length, key))
+
+    async def pick_recommendation(self, player, last=None):
+        """Next radio song: a recommended title matched to a playable upload."""
+        for attempt in range(10):
+            if not player.radio_pool:
+                if attempt >= 6:
+                    break
+                await self.refill(player, last)
+                if not player.radio_pool:
+                    await self.refill(player, None)
+                if not player.radio_pool:
+                    break
+            query, length, key = player.radio_pool.popleft()
+            artist = key.split("|", 1)[1]
+            if key in player.radio_played:
+                continue
+            if artist in player.radio_recent_artists and len(player.radio_pool) > 3:
+                player.radio_pool.append((query, length, key))  # try this one later
+                continue
+            try:
+                results = await wavelink.Playable.search(query, source="scsearch")
+            except wavelink.WavelinkException:
+                continue
+            for match in select_tracks(results, query, strict=True, expected_length=length or None):
+                if match.identifier not in player.radio_seen and upload_key(match) not in player.radio_played:
+                    return match
+            player.radio_played.add(key)  # no clean upload; don't look it up again
+        return None
+
+    async def fallback_pick(self, player, last):
+        """Old behavior if recommendations are unavailable: search the seed/artist."""
+        station = getattr(player, "station_name", None)
+        queries = [] if station else list(dict.fromkeys([player.radio_query, last.author]))
+        for query in queries:
+            try:
+                results = await wavelink.Playable.search(query, source="scsearch")
+            except wavelink.WavelinkException:
+                continue
+            candidates = [t for t in select_tracks(results, query) if t.identifier not in player.radio_seen]
+            if candidates:
+                return candidates[0]
+        return None
+
+    async def next_radio_track(self, player, last):
+        seeds = getattr(player, "station_seeds", None)
+        if seeds:
+            found = await self.station_track(seeds, player.radio_seen)
+            if found:
+                return found[0]
+        if hasattr(player, "radio_pool"):
+            found = await self.pick_recommendation(player, last)
+            if found:
+                return found
+        return await self.fallback_pick(player, last)
+
+    async def prefetch(self, player, gen, last):
+        """Find the next radio song while this one plays, so there's no gap."""
+        try:
+            async with self.radio_locks[player.guild.id]:
+                if getattr(player, "radio_gen", None) != gen or player.queue or getattr(player, "radio_next", None):
+                    return
+                found = await self.next_radio_track(player, last)
+                if getattr(player, "radio_gen", None) == gen:
+                    player.radio_next = found
+        except Exception:
+            log.exception("Radio prefetch failed")
+
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload):
-        if payload.player is not None:
-            payload.player.music_failures = 0
+        player = payload.player
+        if player is None:
+            return
+        player.music_failures = 0
+        if self.radio_active(player) and payload.track is not None:
+            self.remember(player, payload.track)
+            if not player.queue:
+                asyncio.create_task(self.prefetch(player, player.radio_gen, payload.track))
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload):
@@ -383,27 +511,16 @@ class Music(commands.Cog):
             if player.queue:
                 next_track = player.queue.get()
             else:
-                # Wavelink's native recommendations only support YouTube/Spotify.
-                # SoundCloud radio uses fresh search results for the seed, then artist.
-                candidates = []
-                seeds = getattr(player, "station_seeds", None)
-                queries = [] if getattr(player, "station_name", None) else list(dict.fromkeys([player.radio_query, payload.track.author]))
-                if seeds is not None and len(seeds):
-                    candidates = await self.station_track(seeds, player.radio_seen)
-                for query in queries:
-                    try:
-                        results = await wavelink.Playable.search(query, source="scsearch")
-                    except wavelink.WavelinkException:
-                        continue
-                    candidates = [t for t in select_tracks(results, query) if t.identifier not in player.radio_seen]
-                    if candidates:
-                        break
-                if not candidates:
+                async with self.radio_locks[player.guild.id]:  # let an in-flight prefetch finish
+                    next_track = getattr(player, "radio_next", None)
+                    player.radio_next = None
+                    if next_track is None or next_track.identifier in player.radio_seen:
+                        next_track = await self.next_radio_track(player, payload.track)
+                if next_track is None:
                     player.soundcloud_radio = False
                     player.autoplay = wavelink.AutoPlayMode.partial
                     await player.music_channel.send("Radio ran out of fresh matches. Start a new station with `!radio <artist or mood>`.", allowed_mentions=discord.AllowedMentions.none())
                     return
-                next_track = candidates[0]
             if not player.connected or not player.soundcloud_radio:
                 return
             player.radio_seen.add(next_track.identifier)
