@@ -12,6 +12,7 @@ from discord.ext import commands
 from music_selection import STATIONS, normalize_query, provider, select_tracks, station_name
 from recommender import Recommender, song_key, upload_key
 from spotify_resolver import SpotifyResolver, parse_spotify_url
+from youtube_stream import audio_url
 
 log = logging.getLogger(__name__)
 MAX_QUEUE = 200
@@ -89,6 +90,25 @@ class Music(commands.Cog):
             raise commands.CheckFailure("Nothing is playing. Use `!play <song or link>` first.")
         return ctx.voice_client
 
+    def original_track(self, player, track):
+        return getattr(player, "music_originals", {}).get(getattr(track, "identifier", None), track)
+
+    async def play_track(self, player, track):
+        """Play YouTube through yt-dlp's signed HTTP URL, not its fragile API."""
+        if (getattr(track, "source", "") != "youtube"
+                or os.getenv("YTDLP_DIRECT_STREAM", "true").lower() in ("0", "false", "no")):
+            await player.play(track)
+            return
+        stream_url = await audio_url(track.uri)
+        streams = await wavelink.Playable.search(stream_url)
+        if not streams:
+            raise RuntimeError("Lavalink could not load the prepared YouTube audio stream")
+        stream = streams[0]
+        if not isinstance(getattr(player, "music_originals", None), dict):
+            player.music_originals = {}
+        player.music_originals[stream.identifier] = track
+        await player.play(stream)
+
     async def enqueue(self, ctx, query, radio=False):
         query = normalize_query(query)
         if not query:
@@ -137,6 +157,7 @@ class Music(commands.Cog):
             player.music_recovering = False
             player.music_channel = ctx.channel
             player.music_failed_tracks = set()
+            player.music_originals = {}
             selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else (tracks if spotify_link else tracks[:1])
             if not isinstance(getattr(player, "music_fallbacks", None), dict):
                 player.music_fallbacks = {}
@@ -171,12 +192,12 @@ class Music(commands.Cog):
                 self.reset_radio(player, player.radio_query, station)
             if radio:
                 player.auto_queue.clear()
-                await player.play(added[0])
+                await self.play_track(player, added[0])
                 player.queue.put(added[1:])
             else:
                 player.queue.put(added)
             if not radio and player.current is None:
-                await player.play(player.queue.get())
+                await self.play_track(player, player.queue.get())
             suffix = f" Station: {station}. Fresh song selections follow your requested queue." if station else (" Radio will select more songs when the queue runs out." if radio else "")
             if len(added) < len(selected):
                 suffix += f" Queue limit reached; {len(selected) - len(added)} tracks were omitted."
@@ -326,7 +347,7 @@ class Music(commands.Cog):
         player.music_recovering = True
         player.music_failures = getattr(player, "music_failures", 0) + 1
         try:
-            failed_track = getattr(payload, "track", None)
+            failed_track = self.original_track(player, getattr(payload, "track", None))
             failed_ids = getattr(player, "music_failed_tracks", set())
             if not isinstance(failed_ids, set):
                 failed_ids = set()
@@ -347,7 +368,7 @@ class Music(commands.Cog):
                         "That upload was unavailable, so I switched to another matching result.",
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
-                await player.play(next_track)
+                await self.play_track(player, next_track)
                 return
             if failed_track is not None and getattr(failed_track, "source", "") == "youtube":
                 artist = re.sub(r"\s+-\s+Topic$", "", failed_track.author, flags=re.IGNORECASE)
@@ -366,7 +387,7 @@ class Music(commands.Cog):
                             "That YouTube upload was unavailable, so I switched to another matching YouTube result.",
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
-                    await player.play(matches[0])
+                    await self.play_track(player, matches[0])
                     return
             if player.queue and player.music_failures <= 10:
                 next_track = player.queue.get()
@@ -375,7 +396,7 @@ class Music(commands.Cog):
                         "One unavailable mirror was skipped; continuing with the playlist.",
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
-                await player.play(next_track)
+                await self.play_track(player, next_track)
                 return
             player.recommendation_radio = False
             player.autoplay = wavelink.AutoPlayMode.disabled
@@ -507,8 +528,9 @@ class Music(commands.Cog):
         if player is None:
             return
         player.music_failures = 0
-        if self.radio_active(player) and payload.track is not None:
-            self.remember(player, payload.track)
+        current = self.original_track(player, payload.track)
+        if self.radio_active(player) and current is not None:
+            self.remember(player, current)
             if not player.queue:
                 asyncio.create_task(self.prefetch(player, player.radio_gen, payload.track))
 
@@ -529,7 +551,7 @@ class Music(commands.Cog):
                     next_track = getattr(player, "radio_next", None)
                     player.radio_next = None
                     if next_track is None or next_track.identifier in player.radio_seen:
-                        next_track = await self.next_radio_track(player, payload.track)
+                        next_track = await self.next_radio_track(player, self.original_track(player, payload.track))
                 if next_track is None:
                     player.recommendation_radio = False
                     player.autoplay = wavelink.AutoPlayMode.partial
@@ -538,7 +560,7 @@ class Music(commands.Cog):
             if not player.connected or not player.recommendation_radio:
                 return
             player.radio_seen.add(next_track.identifier)
-            await player.play(next_track)
+            await self.play_track(player, next_track)
 
     async def cog_command_error(self, ctx, error):
         error = getattr(error, "original", error)

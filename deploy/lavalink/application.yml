@@ -13,7 +13,8 @@ lavalink:
       bandcamp: true
       twitch: true
       vimeo: true
-      http: false
+      # yt-dlp supplies signed YouTube audio URLs to this source.
+      http: true
       local: false
 plugins:
   youtube:

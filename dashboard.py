@@ -159,7 +159,7 @@ class Dashboard:
             player.radio_seen = {track.identifier}
             player.auto_queue.clear()
             player.autoplay = wavelink.AutoPlayMode.disabled
-            await player.play(track)
+            await music.play_track(player, track)
             return f"Radio started: {station} — {track.title}"
 
     async def add_tracks(self, player, raw_query):
@@ -175,11 +175,7 @@ class Dashboard:
                 if spotify_link:
                     tracks = await music.spotify_tracks(query)
                 else:
-                    tracks = await wavelink.Playable.search(
-                        query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
-                    )
-                    if not query.startswith(("https://", "http://")) and not isinstance(tracks, wavelink.Playlist):
-                        tracks = soundcloud_order(tracks, query)
+                    tracks = await wavelink.Playable.search(query, source="ytsearch")
             except Exception as error:
                 raise web.HTTPBadGateway(text=f"Could not load that song or link: {type(error).__name__}") from error
             if not tracks:
@@ -191,7 +187,7 @@ class Dashboard:
                 raise web.HTTPConflict(text="The queue is full.")
             player.queue.put(added)
             if player.current is None:
-                await player.play(player.queue.get())
+                await music.play_track(player, player.queue.get())
             return f"Added {len(added)} song(s): {added[0].title}"
 
     async def start(self):

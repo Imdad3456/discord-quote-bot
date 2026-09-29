@@ -25,7 +25,7 @@ def track(name="Test song"):
 
 class MusicTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.env = patch.dict(os.environ, {"LAVALINK_URI": "http://localhost:2333", "LAVALINK_PASSWORD": "test"})
+        self.env = patch.dict(os.environ, {"LAVALINK_URI": "http://localhost:2333", "LAVALINK_PASSWORD": "test", "YTDLP_DIRECT_STREAM": "false"})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.cog = Music(MagicMock())
@@ -191,6 +191,18 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
 
         self.player.play.assert_awaited_once_with(fresh)
         self.assertEqual(self.player.music_failed_tracks, {failed.identifier, already_failed.identifier})
+
+    async def test_youtube_uses_ytdlp_signed_http_stream(self):
+        source = track("Official song")
+        stream = track("signed audio")
+        stream._source = "http"
+        with patch.dict(os.environ, {"YTDLP_DIRECT_STREAM": "true"}), \
+             patch.dict(self.cog.play_track.__globals__, {"audio_url": AsyncMock(return_value="https://audio.example/signed")}), \
+             patch("music.wavelink.Playable.search", AsyncMock(return_value=[stream])) as search:
+            await self.cog.play_track(self.player, source)
+        search.assert_awaited_once_with("https://audio.example/signed")
+        self.player.play.assert_awaited_once_with(stream)
+        self.assertEqual(self.player.music_originals[stream.identifier], source)
 
     async def test_recommendation_radio_avoids_repeats_and_prioritizes_queue(self):
         self.player.recommendation_radio = True
