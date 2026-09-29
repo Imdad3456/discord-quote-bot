@@ -3,7 +3,7 @@
 __pycache__/
 *.pyc
 
-# Real quote/member data - never commit, lives on the Railway volume instead
+# Real quote/member data - never commit; lives next to bot.py on the host
 quotes.json
 names.json
 nicknames.json

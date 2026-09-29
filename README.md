@@ -70,6 +70,26 @@ Requested songs take priority over radio recommendations. A new radio query adds
 a seed to the queue; it does not interrupt the current song. `!queue` shows what
 radio is based on. Radio is related-track autoplay, not personalized per listener.
 
+## Hosting on a Steam Deck
+
+The bot and its Lavalink music server run together on the Deck, with no cloud host.
+
+1. In Desktop Mode, turn off sleep: Settings → Power → set both "suspend" options to Never.
+2. Open Konsole and run:
+   ```
+   git clone https://github.com/Imdad3456/discord-quote-bot ~/discord-quote-bot
+   cd ~/discord-quote-bot
+   ./deploy/steamdeck/install.sh
+   ```
+   The first run creates `.env`. Fill it in (no quotes around values), then run the script again.
+3. Copy `quotes.json`, `names.json` and `nicknames.json` into `~/discord-quote-bot`.
+4. For the web dashboard, set `DASHBOARD_PUBLIC_URL=http://<deck address>:8080` in `.env`.
+   With Tailscale, use the Deck's Tailscale name so it works away from home.
+
+Both services start at boot and restart if they crash.
+`journalctl --user -u quotebot -f` shows live logs. After pushing new code to
+GitHub, run `./deploy/steamdeck/update.sh` on the Deck.
+
 ## Web dashboard
 
 Set a long random `DASHBOARD_TOKEN` on the bot service and expose its `PORT` with
