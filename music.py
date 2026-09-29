@@ -18,6 +18,11 @@ MAX_QUEUE = 200
 RECENT_ARTISTS = 4  # radio waits this many songs before repeating an artist
 
 
+def search_source():
+    """Use YouTube for playable search results unless the host overrides it."""
+    return os.getenv("MUSIC_SEARCH_SOURCE", "ytsearch")
+
+
 def title(track):
     return discord.utils.escape_markdown(track.title[:120])
 
@@ -103,7 +108,7 @@ class Music(commands.Cog):
             else:
                 try:
                     tracks = await wavelink.Playable.search(
-                        query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
+                        query, source=search_source()
                     )
                 except wavelink.LavalinkLoadException as error:
                     source = provider(query)
@@ -197,7 +202,7 @@ class Music(commands.Cog):
             async with semaphore:
                 try:
                     results = await wavelink.Playable.search(
-                        query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch")
+                        query, source=search_source()
                     )
                 except wavelink.LavalinkLoadException:
                     return None
@@ -212,7 +217,7 @@ class Music(commands.Cog):
         for _ in range(min(4, len(seeds))):
             query = seeds.popleft()
             try:
-                results = await wavelink.Playable.search(query, source=os.getenv("MUSIC_SEARCH_SOURCE", "scsearch"))
+                results = await wavelink.Playable.search(query, source=search_source())
             except wavelink.LavalinkLoadException:
                 continue
             matches = [t for t in select_tracks(results, query, strict=True) if t.identifier not in seen]
@@ -440,7 +445,7 @@ class Music(commands.Cog):
                 player.radio_pool.append((query, length, key))  # try this one later
                 continue
             try:
-                results = await wavelink.Playable.search(query, source="scsearch")
+                results = await wavelink.Playable.search(query, source=search_source())
             except wavelink.WavelinkException:
                 continue
             for match in select_tracks(results, query, strict=True, expected_length=length or None):
@@ -455,7 +460,7 @@ class Music(commands.Cog):
         queries = [] if station else list(dict.fromkeys([player.radio_query, last.author]))
         for query in queries:
             try:
-                results = await wavelink.Playable.search(query, source="scsearch")
+                results = await wavelink.Playable.search(query, source=search_source())
             except wavelink.WavelinkException:
                 continue
             candidates = [t for t in select_tracks(results, query) if t.identifier not in player.radio_seen]

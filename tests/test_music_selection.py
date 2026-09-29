@@ -46,6 +46,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_user_station_intents(self):
         self.assertEqual(station_name("white girl pop"), "pop")
+        self.assertEqual(station_name("white pop"), "pop")
         self.assertEqual(station_name("2015 most popular"), "2015 hits")
         self.assertEqual(station_name("popular songs"), "pop")
         self.assertIsNone(station_name("Taylor Swift Blank Space"))

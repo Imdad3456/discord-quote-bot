@@ -160,8 +160,9 @@ Live audio requires a Discord token and a running Lavalink instance; offline
 tests do not verify provider availability, recommendation quality, or voice transport.
 
 If YouTube fails, inspect the Lavalink logs and the YouTube plugin's documentation
-for current provider requirements; try a SoundCloud link to isolate the issue.
-Set `MUSIC_SEARCH_SOURCE=scsearch` to default text searches to SoundCloud.
+for current provider requirements. The default `MUSIC_SEARCH_SOURCE=ytsearch` is
+intentional: SoundCloud search results can expose streams that return 404 at play time.
+Set `MUSIC_SEARCH_SOURCE=scsearch` only when SoundCloud playback has been verified.
 If no recommendations are available, try a different seed or queue a playlist.
 
 Upstream references:

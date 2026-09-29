@@ -102,7 +102,7 @@ STATIONS = {
         "David Guetta Memories",
     ],
 }
-ALIASES = {"white girl pop": "pop", "popular songs": "pop", "pop hits": "pop",
+ALIASES = {"white girl pop": "pop", "white pop": "pop", "popular songs": "pop", "pop hits": "pop",
            "2015 most popular": "2015 hits", "2015 popular songs": "2015 hits",
            "2015": "2015 hits", "jazz": "chill jazz", "smooth jazz": "chill jazz",
            "rap": "hip hop", "hip-hop": "hip hop", "edm": "electronic",

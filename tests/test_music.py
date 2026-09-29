@@ -183,7 +183,7 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         with patch("music.wavelink.Playable.search", AsyncMock(return_value=[track("played"), fresh])) as search:
             await self.cog.on_wavelink_track_end(payload)
             self.player.play.assert_awaited_with(fresh)
-            search.assert_awaited_once_with("jazz", source="scsearch")
+        search.assert_awaited_once_with("jazz", source="ytsearch")
         requested = track("requested")
         self.player.queue.put(requested)
         with patch("music.wavelink.Playable.search", AsyncMock()) as search:
