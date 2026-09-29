@@ -159,6 +159,7 @@ def expected_parts(query):
 
 
 VERSION_PENALTIES = {
+    "lyrics": 15,
     "live": 20,
     "cover": 25,
     "nightcore": 30,

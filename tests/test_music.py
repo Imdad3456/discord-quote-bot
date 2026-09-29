@@ -14,7 +14,7 @@ from music import MAX_QUEUE, Music
 
 def track(name="Test song"):
     return wavelink.Playable({
-        "encoded": "test", "info": {
+        "encoded": f"test:{name}", "info": {
             "identifier": name, "isSeekable": True, "author": "Artist",
             "length": 180000, "isStream": False, "position": 0,
             "title": name, "uri": "https://www.youtube.com/watch?v=test",
@@ -159,7 +159,7 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_youtube_stream_uses_another_youtube_result(self):
         failed = track("Stateside")
         failed._author = "PinkPantheress - Topic"
-        mirror = track("Stateside")
+        mirror = track("Stateside alternate")
         mirror._author = "PinkPantheress"
         mirror._source = "youtube"
         self.player.music_recovering = False
@@ -172,6 +172,25 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         search.assert_awaited_once_with("PinkPantheress - Stateside", source="ytsearch")
         self.player.play.assert_awaited_once_with(mirror)
         self.player.music_channel.send.assert_awaited_once()
+
+    async def test_youtube_recovery_never_retries_the_same_upload(self):
+        failed = track("Stateside")
+        failed._source = "youtube"
+        failed._author = "PinkPantheress"
+        already_failed = track("Stateside alternate")
+        fresh = track("Stateside official audio")
+        already_failed._author = "PinkPantheress"
+        fresh._author = "PinkPantheress"
+        self.player.music_recovering = False
+        self.player.music_failures = 0
+        self.player.music_failed_tracks = {already_failed.identifier}
+        self.player.music_channel = SimpleNamespace(send=AsyncMock())
+
+        with patch("music.wavelink.Playable.search", AsyncMock(return_value=[failed, already_failed, fresh])):
+            await self.cog.on_wavelink_track_exception(SimpleNamespace(player=self.player, track=failed))
+
+        self.player.play.assert_awaited_once_with(fresh)
+        self.assertEqual(self.player.music_failed_tracks, {failed.identifier, already_failed.identifier})
 
     async def test_recommendation_radio_avoids_repeats_and_prioritizes_queue(self):
         self.player.recommendation_radio = True

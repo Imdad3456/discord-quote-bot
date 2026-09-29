@@ -136,6 +136,7 @@ class Music(commands.Cog):
             player.music_failures = 0
             player.music_recovering = False
             player.music_channel = ctx.channel
+            player.music_failed_tracks = set()
             selected = tracks.tracks if isinstance(tracks, wavelink.Playlist) else (tracks if spotify_link else tracks[:1])
             if not isinstance(getattr(player, "music_fallbacks", None), dict):
                 player.music_fallbacks = {}
@@ -326,7 +327,16 @@ class Music(commands.Cog):
         player.music_failures = getattr(player, "music_failures", 0) + 1
         try:
             failed_track = getattr(payload, "track", None)
-            fallbacks = getattr(player, "music_fallbacks", {})
+            failed_ids = getattr(player, "music_failed_tracks", set())
+            if not isinstance(failed_ids, set):
+                failed_ids = set()
+                player.music_failed_tracks = failed_ids
+            if failed_track is not None:
+                failed_ids.add(failed_track.identifier)
+            fallbacks = getattr(player, "music_fallbacks", None)
+            if not isinstance(fallbacks, dict):
+                fallbacks = {}
+                player.music_fallbacks = fallbacks
             mirrors = fallbacks.pop(getattr(failed_track, "identifier", None), deque())
             if mirrors:
                 next_track = mirrors.popleft()
@@ -346,9 +356,12 @@ class Music(commands.Cog):
                     results = await wavelink.Playable.search(query, source=search_source())
                 except wavelink.WavelinkException:
                     results = []
-                matches = select_tracks(results, query, strict=True)
+                matches = [
+                    track for track in select_tracks(results, query, strict=True)
+                    if track.identifier not in failed_ids
+                ]
                 if matches:
-                    if getattr(player, "music_channel", None):
+                    if player.music_failures == 1 and getattr(player, "music_channel", None):
                         await player.music_channel.send(
                             "That YouTube upload was unavailable, so I switched to another matching YouTube result.",
                             allowed_mentions=discord.AllowedMentions.none(),
@@ -372,7 +385,7 @@ class Music(commands.Cog):
             channel = getattr(player, "music_channel", None)
             if channel:
                 await channel.send(
-                    "Too many tracks were unavailable, so playback stopped. Try another playlist or song.",
+                    "YouTube rejected the available uploads, so playback stopped. Try again later or choose another song.",
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
         finally:
