@@ -1,19 +1,19 @@
-"""Resolve YouTube videos to short-lived audio URLs with yt-dlp."""
+"""Stream YouTube audio through yt-dlp for Lavalink."""
 import asyncio
+import os
+from urllib.parse import urlencode
 
 
-async def audio_url(url):
-    """Return a signed best-audio URL suitable for Lavalink's HTTP source."""
+def stream_url(url):
+    """Internal URL Lavalink uses; yt-dlp owns the actual YouTube connection."""
+    base = os.getenv("YTDLP_STREAM_BASE", "http://discord-quote-bot:8080")
+    return base.rstrip("/") + "/internal/audio?" + urlencode({"url": url})
+
+
+async def start_audio_stream(url):
+    """Start yt-dlp writing a fresh best-audio stream to stdout."""
     process = await asyncio.create_subprocess_exec(
-        "yt-dlp", "--no-playlist", "--no-warnings", "-f", "bestaudio/best", "-g", url,
+        "yt-dlp", "--no-playlist", "--no-warnings", "-f", "bestaudio/best", "-o", "-", url,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
-    try:
-        output, error = await asyncio.wait_for(process.communicate(), timeout=45)
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.communicate()
-        raise RuntimeError("yt-dlp timed out while preparing YouTube audio")
-    if process.returncode or not output.strip():
-        raise RuntimeError(error.decode("utf-8", "replace")[-500:] or "yt-dlp could not prepare this video")
-    return output.decode("utf-8", "replace").splitlines()[0]
+    return process

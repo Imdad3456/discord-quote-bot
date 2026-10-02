@@ -197,10 +197,9 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         stream = track("signed audio")
         stream._source = "http"
         with patch.dict(os.environ, {"YTDLP_DIRECT_STREAM": "true"}), \
-             patch.dict(self.cog.play_track.__globals__, {"audio_url": AsyncMock(return_value="https://audio.example/signed")}), \
              patch("music.wavelink.Playable.search", AsyncMock(return_value=[stream])) as search:
             await self.cog.play_track(self.player, source)
-        search.assert_awaited_once_with("https://audio.example/signed")
+        self.assertIn("/internal/audio?url=", search.call_args.args[0])
         self.player.play.assert_awaited_once_with(stream)
         self.assertEqual(self.player.music_originals[stream.identifier], source)
 

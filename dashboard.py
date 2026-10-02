@@ -1,4 +1,5 @@
 """Small authenticated web dashboard for live Discord music players."""
+import asyncio
 import hmac
 import os
 import random
@@ -7,6 +8,7 @@ from collections import deque
 from aiohttp import web
 import discord
 import wavelink
+from youtube_stream import start_audio_stream
 
 from music_selection import STATIONS, normalize_query, select_tracks, soundcloud_order, station_name
 from spotify_resolver import parse_spotify_url
@@ -136,6 +138,25 @@ class Dashboard:
             raise web.HTTPBadRequest(text="Unknown action")
         return web.json_response({"ok": True, "message": message})
 
+    async def audio_stream(self, request):
+        """Private container-network relay; keeps yt-dlp connected to YouTube."""
+        url = request.query.get("url", "")
+        if not url.startswith(("https://www.youtube.com/", "https://youtube.com/", "https://youtu.be/")):
+            raise web.HTTPBadRequest(text="Expected a YouTube URL")
+        process = await start_audio_stream(url)
+        response = web.StreamResponse(headers={"Content-Type": "audio/webm"})
+        await response.prepare(request)
+        try:
+            while chunk := await process.stdout.read(64 * 1024):
+                await response.write(chunk)
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        finally:
+            if process.returncode is None:
+                process.kill()
+            await process.communicate()
+        return response
+
     async def start_radio(self, player, raw_station):
         station = station_name(str(raw_station))
         if station is None:
@@ -197,6 +218,7 @@ class Dashboard:
         app.router.add_get("/{token}", self.page)
         app.router.add_get("/api/{token}/state", self.state)
         app.router.add_post("/api/{token}/control", self.control)
+        app.router.add_get("/internal/audio", self.audio_stream)
         self.runner = web.AppRunner(app, access_log=None)
         await self.runner.setup()
         await web.TCPSite(self.runner, "0.0.0.0", int(os.getenv("PORT", "8080"))).start()
