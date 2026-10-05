@@ -144,9 +144,19 @@ class Dashboard:
         if not url.startswith(("https://www.youtube.com/", "https://youtube.com/", "https://youtu.be/")):
             raise web.HTTPBadRequest(text="Expected a YouTube URL")
         process = await start_audio_stream(url)
+        try:
+            first_chunk = await asyncio.wait_for(process.stdout.read(64 * 1024), timeout=40)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            raise web.HTTPBadGateway(text="yt-dlp did not start an audio stream in time")
+        if not first_chunk:
+            _, error = await process.communicate()
+            raise web.HTTPBadGateway(text=error.decode("utf-8", "replace")[-500:] or "yt-dlp returned no audio")
         response = web.StreamResponse(headers={"Content-Type": "audio/webm"})
         await response.prepare(request)
         try:
+            await response.write(first_chunk)
             while chunk := await process.stdout.read(64 * 1024):
                 await response.write(chunk)
         except (ConnectionResetError, asyncio.CancelledError):
