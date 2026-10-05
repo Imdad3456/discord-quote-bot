@@ -4,11 +4,12 @@ import hmac
 import os
 import random
 from collections import deque
+from pathlib import Path
 
 from aiohttp import web
 import discord
 import wavelink
-from youtube_stream import start_audio_stream
+from youtube_stream import CACHE_DIR
 
 from music_selection import STATIONS, normalize_query, select_tracks, soundcloud_order, station_name
 from spotify_resolver import parse_spotify_url
@@ -138,34 +139,15 @@ class Dashboard:
             raise web.HTTPBadRequest(text="Unknown action")
         return web.json_response({"ok": True, "message": message})
 
-    async def audio_stream(self, request):
-        """Private container-network relay; keeps yt-dlp connected to YouTube."""
-        url = request.query.get("url", "")
-        if not url.startswith(("https://www.youtube.com/", "https://youtube.com/", "https://youtu.be/")):
-            raise web.HTTPBadRequest(text="Expected a YouTube URL")
-        process = await start_audio_stream(url)
-        try:
-            first_chunk = await asyncio.wait_for(process.stdout.read(64 * 1024), timeout=40)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.communicate()
-            raise web.HTTPBadGateway(text="yt-dlp did not start an audio stream in time")
-        if not first_chunk:
-            _, error = await process.communicate()
-            raise web.HTTPBadGateway(text=error.decode("utf-8", "replace")[-500:] or "yt-dlp returned no audio")
-        response = web.StreamResponse(headers={"Content-Type": "audio/webm"})
-        await response.prepare(request)
-        try:
-            await response.write(first_chunk)
-            while chunk := await process.stdout.read(64 * 1024):
-                await response.write(chunk)
-        except (ConnectionResetError, asyncio.CancelledError):
-            pass
-        finally:
-            if process.returncode is None:
-                process.kill()
-            await process.communicate()
-        return response
+    async def audio_file(self, request):
+        """Serve a completed private yt-dlp download to Lavalink immediately."""
+        name = request.match_info["name"]
+        if name != Path(name).name or not name.endswith(".webm"):
+            raise web.HTTPNotFound()
+        path = CACHE_DIR / name
+        if not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Content-Type": "audio/webm"})
 
     async def start_radio(self, player, raw_station):
         station = station_name(str(raw_station))
@@ -228,7 +210,7 @@ class Dashboard:
         app.router.add_get("/{token}", self.page)
         app.router.add_get("/api/{token}/state", self.state)
         app.router.add_post("/api/{token}/control", self.control)
-        app.router.add_get("/internal/audio", self.audio_stream)
+        app.router.add_get("/internal/audio/{name}", self.audio_file)
         self.runner = web.AppRunner(app, access_log=None)
         await self.runner.setup()
         await web.TCPSite(self.runner, "0.0.0.0", int(os.getenv("PORT", "8080"))).start()

@@ -12,7 +12,7 @@ from discord.ext import commands
 from music_selection import STATIONS, normalize_query, provider, select_tracks, station_name
 from recommender import Recommender, song_key, upload_key
 from spotify_resolver import SpotifyResolver, parse_spotify_url
-from youtube_stream import stream_url
+from youtube_stream import cache_audio
 
 log = logging.getLogger(__name__)
 MAX_QUEUE = 200
@@ -99,7 +99,7 @@ class Music(commands.Cog):
                 or os.getenv("YTDLP_DIRECT_STREAM", "true").lower() in ("0", "false", "no")):
             await player.play(track)
             return
-        streams = await wavelink.Playable.search(stream_url(track.uri))
+        streams = await wavelink.Playable.search(await cache_audio(track.uri))
         if not streams:
             raise RuntimeError("Lavalink could not load the prepared YouTube audio stream")
         stream = streams[0]
