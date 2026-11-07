@@ -184,6 +184,13 @@ reaction:
 - Anything the bot can't save or delete. It retries on the next `!sync` or restart.
 - When catching up after downtime, anything older than 7 days.
 
+Saved quotes, names and attachments are encrypted with `QUOTES_KEY`, and the bot won't
+start without it. Backups hold the encrypted files, so they can't be opened without
+the key either: keep a copy of it away from the server. The key is on the server so
+the bot can run, which means this protects copied files and backups, not a server
+someone has taken over. `python tools/encrypt_saved.py` encrypts older files and
+opens a `.enc` file again.
+
 Quotes are sealed by default. `!randomquote`, `!topquoted`, and Quote of the Day stay
 off for everyone, while the bot keeps collecting. Set `QUOTES_SEALED=false` to turn
 them back on, and `!topquoted 10 2026` then ranks a single year.

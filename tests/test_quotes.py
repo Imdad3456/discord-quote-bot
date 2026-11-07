@@ -1,12 +1,13 @@
 """Quote privacy: nothing leaves Discord until it is safely on disk."""
 from datetime import datetime, timedelta, timezone
-import json
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from cryptography.fernet import Fernet
 import discord
 
 import bot as quote_bot
@@ -20,7 +21,7 @@ def fake_message(message_id=1, content=QUOTE, attachments=(), age=timedelta(0), 
         id=message_id,
         author=SimpleNamespace(bot=False, id=7),
         content=content,
-        attachments=[SimpleNamespace(id=9, filename='a.png', url=url, save=AsyncMock())
+        attachments=[SimpleNamespace(id=9, filename='a.png', url=url, read=AsyncMock(return_value=b'picture'))
                      for url in attachments],
         created_at=datetime.now(timezone.utc) - age,
         jump_url='https://discord.com/channels/1/2/3',
@@ -59,9 +60,12 @@ class QuoteTestCase(unittest.IsolatedAsyncioTestCase):
         patcher = patch.object(quote_bot.bot, 'process_commands', AsyncMock())
         patcher.start()
         self.addCleanup(patcher.stop)
+        patcher = patch.dict(os.environ, {'QUOTES_KEY': Fernet.generate_key().decode()})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def saved_ids(self):
-        return [q['id'] for q in json.loads(self.file.read_text(encoding='utf-8'))]
+        return [q['id'] for q in quote_bot.load_quotes()]
 
 
 class DeleteAfterRecordTests(QuoteTestCase):
@@ -83,7 +87,7 @@ class DeleteAfterRecordTests(QuoteTestCase):
 
     async def test_failed_write_keeps_the_existing_file(self):
         quote_bot.write_quotes([{'id': 1}])
-        with patch.object(quote_bot.json, 'dump', side_effect=OSError('disk full')):
+        with patch.object(quote_bot.vault.os, 'replace', side_effect=OSError('disk full')):
             with self.assertRaises(OSError):
                 quote_bot.write_quotes([{'id': 2}])
         self.assertEqual(self.saved_ids(), [1])
@@ -96,15 +100,17 @@ class DeleteAfterRecordTests(QuoteTestCase):
 
     async def test_attachment_is_copied_before_the_message_is_deleted(self):
         message = fake_message(attachments=['https://cdn.discordapp.com/a.png'])
-        attachment = message.attachments[0]
-        message.delete.side_effect = lambda: attachment.save.assert_awaited_once()
+        copy = self.file.parent / 'attachments' / '9-a.png.enc'
+        copies = []
+        message.delete.side_effect = lambda: copies.append(copy.read_bytes())
         await quote_bot.on_message(message)
         message.delete.assert_awaited_once()
-        self.assertTrue(attachment.save.await_args.args[0].endswith('9-a.png'))
+        self.assertNotIn(b'picture', copies[0])
+        self.assertEqual(quote_bot.vault.read_bytes(copy), b'picture')
 
     async def test_failed_attachment_copy_keeps_the_message(self):
         message = fake_message(attachments=['https://cdn.discordapp.com/a.png'])
-        message.attachments[0].save.side_effect = OSError('disk full')
+        message.attachments[0].read.side_effect = OSError('disk full')
         await quote_bot.on_message(message)
         message.delete.assert_not_awaited()
         message.add_reaction.assert_awaited_once()

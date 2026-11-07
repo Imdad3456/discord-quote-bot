@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from quote_card import render_quote_card
 from quote_parser import MENTION_RE, parse_quotes, parse_quotes_loose
 from dashboard import Dashboard
+import vault
 
 load_dotenv()
 
@@ -61,33 +62,19 @@ quotes_lock = asyncio.Lock()
 
 
 def load_quotes():
-    if os.path.exists(QUOTES_FILE):
-        with open(QUOTES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+    return vault.read_json(QUOTES_FILE, [])
 
 
 def write_quotes(quotes):
-    # This file is the only copy of a deleted quote, so a crash mid-write must
-    # never leave it truncated.
-    temporary = f"{QUOTES_FILE}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        json.dump(quotes, f, indent=2, ensure_ascii=False)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temporary, QUOTES_FILE)
+    vault.write_json(QUOTES_FILE, quotes)
 
 
 def load_names():
-    if os.path.exists(NAMES_FILE):
-        with open(NAMES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    return vault.read_json(NAMES_FILE, {})
 
 
 def write_names(names):
-    with open(NAMES_FILE, "w", encoding="utf-8") as f:
-        json.dump(names, f, indent=2, ensure_ascii=False)
+    vault.write_json(NAMES_FILE, names)
 
 
 def build_entry(message):
@@ -129,7 +116,8 @@ async def save_attachments(message):
     folder = os.path.join(os.path.dirname(QUOTES_FILE), "attachments")
     os.makedirs(folder, exist_ok=True)
     for attachment in message.attachments:
-        await attachment.save(os.path.join(folder, f"{attachment.id}-{attachment.filename}"))
+        path = os.path.join(folder, f"{attachment.id}-{attachment.filename}.enc")
+        vault.write_bytes(path, await attachment.read())
 
 
 async def delete_recorded_quote(message):
@@ -271,8 +259,8 @@ async def notify_unresolved(message, unresolved_ids):
                 return
             except discord.Forbidden:
                 pass
-    # Never fall back to the channel: it would show who was quoted.
-    print(text)
+    # Never fall back to the channel or the logs: they would show who was quoted.
+    print("Could not reach the owner by DM.")
 
 
 @bot.event
@@ -579,4 +567,9 @@ if __name__ == "__main__":
         raise SystemExit("DISCORD_TOKEN is not set. Copy .env.example to .env and fill it in.")
     if not QUOTES_CHANNEL_ID:
         raise SystemExit("QUOTES_CHANNEL_ID is not set. Copy .env.example to .env and fill it in.")
+    if not os.getenv("QUOTES_KEY"):
+        raise SystemExit("QUOTES_KEY is not set. Copy .env.example to .env and fill it in.")
+    # A wrong key must stop here, not later when a quote can't be saved.
+    load_quotes()
+    load_names()
     bot.run(TOKEN)
