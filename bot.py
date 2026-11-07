@@ -3,7 +3,8 @@ import io
 import json
 import os
 import random
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands, tasks
@@ -23,6 +24,18 @@ NICKNAMES_FILE = os.getenv("NICKNAMES_FILE", "nicknames.json")
 MOD_USER_ID = int(os.getenv("MOD_USER_ID")) if os.getenv("MOD_USER_ID") else None
 QUOTE_OF_DAY_HOUR_UTC = int(os.getenv("QUOTE_OF_DAY_HOUR_UTC", "13"))
 ANNOUNCEMENTS_CHANNEL_ID = int(os.getenv("ANNOUNCEMENTS_CHANNEL_ID", "0")) or QUOTES_CHANNEL_ID
+# Quote dates and years follow local time so a New Year's Eve quote stays in its year.
+QUOTES_TIMEZONE = ZoneInfo(os.getenv("QUOTES_TIMEZONE") or "America/New_York")
+DELETE_RECORDED_QUOTES = os.getenv("DELETE_RECORDED_QUOTES", "true").lower() != "false"
+# Catch-up only deletes recent quotes, so pointing the bot at a channel with
+# history can't sweep away years of old messages.
+BACKFILL_DELETE_MAX_AGE = timedelta(days=7)
+QUOTE_SAVED_NOTICE_SECONDS = 5
+# While sealed, the bot keeps collecting quotes but never shows them to anyone.
+# The only way out is the owner's (MOD_USER_ID) book, which opens on this date.
+QUOTES_SEALED = os.getenv("QUOTES_SEALED", "true").lower() != "false"
+QUOTE_BOOK_OPENS = tuple(int(part) for part in (os.getenv("QUOTE_BOOK_OPENS") or "12-31").split("-"))
+SEALED_MESSAGE = "Quotes are sealed until the year-end book."
 
 QUOTE_REACTION_EMOJI = "\U0001FAC3"  # 🫃 pregnant man
 
@@ -44,6 +57,7 @@ class QuoteBot(commands.Bot):
 
 
 bot = QuoteBot(command_prefix="!", intents=intents)
+quotes_lock = asyncio.Lock()
 
 
 def load_quotes():
@@ -54,8 +68,14 @@ def load_quotes():
 
 
 def write_quotes(quotes):
-    with open(QUOTES_FILE, "w", encoding="utf-8") as f:
+    # This file is the only copy of a deleted quote, so a crash mid-write must
+    # never leave it truncated.
+    temporary = f"{QUOTES_FILE}.tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
         json.dump(quotes, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, QUOTES_FILE)
 
 
 def load_names():
@@ -82,25 +102,81 @@ def build_entry(message):
     }
 
 
+async def record_messages(messages):
+    """Save any messages not yet recorded and return how many were added. Must
+    finish before a message is deleted, because that makes this the only copy."""
+    async with quotes_lock:
+        quotes = load_quotes()
+        existing_ids = {q["id"] for q in quotes}
+        new_entries = [build_entry(m) for m in messages if m.id not in existing_ids]
+        if new_entries:
+            quotes.extend(new_entries)
+            quotes.sort(key=lambda q: q["timestamp"])
+            write_quotes(quotes)
+    return len(new_entries)
+
+
+def should_delete(message):
+    return (
+        DELETE_RECORDED_QUOTES
+        and not message.content.startswith(bot.command_prefix)
+        and bool(parse_quotes(message.content))
+    )
+
+
+async def save_attachments(message):
+    # These only exist on Discord, so keep a copy before the message goes.
+    folder = os.path.join(os.path.dirname(QUOTES_FILE), "attachments")
+    os.makedirs(folder, exist_ok=True)
+    for attachment in message.attachments:
+        await attachment.save(os.path.join(folder, f"{attachment.id}-{attachment.filename}"))
+
+
+async def delete_recorded_quote(message):
+    try:
+        await save_attachments(message)
+        await message.delete()
+    except discord.NotFound:
+        pass
+    except (discord.HTTPException, OSError) as error:
+        print(f"Could not delete recorded quote {message.id}: {error}")
+        return False
+    return True
+
+
+async def acknowledge_quote(message):
+    if should_delete(message) and await delete_recorded_quote(message):
+        await message.channel.send(
+            f"{QUOTE_REACTION_EMOJI} Quote saved.", delete_after=QUOTE_SAVED_NOTICE_SECONDS
+        )
+    else:
+        await message.add_reaction(QUOTE_REACTION_EMOJI)
+
+
 async def backfill_channel(channel):
-    quotes = load_quotes()
-    existing_ids = {q["id"] for q in quotes}
-    added = 0
+    existing_ids = {q["id"] for q in load_quotes()}
+    oldest_deletable = discord.utils.utcnow() - BACKFILL_DELETE_MAX_AGE
+    new_messages = []
+    to_delete = []
 
     async for message in channel.history(limit=None, oldest_first=True):
         if message.author.bot:
             continue
-        if message.id in existing_ids:
-            continue
         if not message.content and not message.attachments:
             continue
-        quotes.append(build_entry(message))
-        existing_ids.add(message.id)
-        added += 1
+        if message.id not in existing_ids:
+            new_messages.append(message)
+        # Already-recorded messages count too, so a failed delete is retried.
+        if message.created_at >= oldest_deletable and should_delete(message):
+            to_delete.append(message)
 
-    if added:
-        quotes.sort(key=lambda q: q["timestamp"])
-        write_quotes(quotes)
+    added = await record_messages(new_messages)
+    deleted = 0
+    for message in to_delete:
+        if await delete_recorded_quote(message):
+            deleted += 1
+    if deleted:
+        print(f"Backfill deleted {deleted} recorded quote(s).")
 
     return added
 
@@ -135,29 +211,51 @@ def iter_parsed_quotes(quotes):
             yield q, quote_text, attribution_name, attribution_id
 
 
+def quote_datetime(q):
+    return datetime.fromisoformat(q["timestamp"]).astimezone(QUOTES_TIMEZONE)
+
+
+def book_is_open(year):
+    today = datetime.now(QUOTES_TIMEZONE)
+    return year < today.year or (year == today.year and (today.month, today.day) >= QUOTE_BOOK_OPENS)
+
+
 def format_quote_line(q, quote_text, attribution_name, attribution_id, names, guild):
-    dt = datetime.fromisoformat(q["timestamp"]).strftime("%B %d, %Y")
+    dt = quote_datetime(q).strftime("%B %d, %Y")
     quote_text = resolve_mentions_in_text(quote_text, names, guild)
     who = resolve_attribution(attribution_name, attribution_id, names, guild)
     return f'"{quote_text}" — {who} ({dt})'
 
 
-def build_quote_book_text(quotes, guild=None):
+def build_quote_book_text(quotes, guild=None, year=None):
+    """Quotes grouped under a heading per year, numbered from 1 within each year.
+    Pass year to get just that year. Returns (text, total_quotes)."""
     names = load_names()
     lines = []
-    i = 0
+    total = 0
+    number = 0
+    current_year = None
     for q, quote_text, attribution_name, attribution_id in iter_parsed_quotes(quotes):
-        i += 1
-        lines.append(f"{i}. " + format_quote_line(q, quote_text, attribution_name, attribution_id, names, guild))
+        quote_year = quote_datetime(q).year
+        if year is not None and quote_year != year:
+            continue
+        if quote_year != current_year:
+            current_year = quote_year
+            number = 0
+            lines.extend([f"===== {current_year} =====", ""])
+        number += 1
+        total += 1
+        lines.append(f"{number}. " + format_quote_line(q, quote_text, attribution_name, attribution_id, names, guild))
         lines.append("")
     text = "\n".join(lines) if lines else "No formatted quotes found yet."
-    return text, i
+    return text, total
 
 
 async def notify_unresolved(message, unresolved_ids):
     mentions = ", ".join(f"<@{uid}>" for uid in unresolved_ids)
+    posted = message.created_at.astimezone(QUOTES_TIMEZONE).strftime("%B %d, %Y")
     text = (
-        f"⚠️ Unresolved quote attribution in {message.jump_url}: {mentions}\n"
+        f"⚠️ Unresolved quote attribution on a quote from {posted}: {mentions}\n"
         f"Use `!setname @user Real Name` to map them."
     )
     if MOD_USER_ID:
@@ -173,7 +271,8 @@ async def notify_unresolved(message, unresolved_ids):
                 return
             except discord.Forbidden:
                 pass
-    await message.reply(text, mention_author=False)
+    # Never fall back to the channel: it would show who was quoted.
+    print(text)
 
 
 @bot.event
@@ -203,13 +302,10 @@ async def on_message(message):
 
     if message.channel.id == QUOTES_CHANNEL_ID and not message.content.startswith(bot.command_prefix):
         if message.content or message.attachments:
-            quotes = load_quotes()
-            if message.id not in {q["id"] for q in quotes}:
-                quotes.append(build_entry(message))
-                write_quotes(quotes)
+            if await record_messages([message]):
                 parsed = parse_quotes(message.content)
                 if parsed:
-                    await message.add_reaction(QUOTE_REACTION_EMOJI)
+                    await acknowledge_quote(message)
                     names = load_names()
                     unresolved = sorted(
                         {aid for _, _, aid in parsed if aid is not None and str(aid) not in names}
@@ -223,7 +319,7 @@ async def on_message(message):
 @tasks.loop(time=time(hour=QUOTE_OF_DAY_HOUR_UTC, tzinfo=timezone.utc))
 async def post_quote_of_the_day():
     channel = bot.get_channel(ANNOUNCEMENTS_CHANNEL_ID)
-    if channel is None:
+    if channel is None or QUOTES_SEALED:
         return
     quotes = load_quotes()
     parsed = list(iter_parsed_quotes(quotes))
@@ -270,19 +366,39 @@ async def dashboard_link(ctx):
 
 
 @bot.command(name="quotebook")
-@commands.has_permissions(manage_messages=True)
-async def quotebook(ctx):
+async def quotebook(ctx, year: int = None):
+    if ctx.author.id != MOD_USER_ID:
+        await ctx.reply("The quote book is private.", mention_author=False)
+        return
     quotes = load_quotes()
-    text, count = build_quote_book_text(quotes, guild=ctx.guild)
+    if year is None:
+        quotes = [q for q in quotes if book_is_open(quote_datetime(q).year)]
+    elif not book_is_open(year):
+        month, day = QUOTE_BOOK_OPENS
+        opens = datetime(year, month, day).strftime("%B %d, %Y")
+        await ctx.reply(f"The {year} book opens on {opens}.", mention_author=False)
+        return
+    text, count = build_quote_book_text(quotes, guild=ctx.guild, year=year)
     buffer = io.BytesIO(text.encode("utf-8"))
-    await ctx.reply(
-        content=f"Here's the compiled quote book ({count} quotes).",
-        file=discord.File(buffer, filename="quote_book.txt"),
-    )
+    book = f"{year} quote book" if year else "compiled quote book"
+    filename = f"quote_book_{year}.txt" if year else "quote_book.txt"
+    try:
+        await ctx.author.send(
+            content=f"Here's the {book} ({count} quotes).",
+            file=discord.File(buffer, filename=filename),
+        )
+    except discord.Forbidden:
+        await ctx.reply("I couldn't DM you. Enable direct messages and try again.", mention_author=False)
+        return
+    if ctx.guild is not None:
+        await ctx.reply("I sent the book to your DMs.", mention_author=False)
 
 
 @bot.command(name="randomquote")
 async def random_quote(ctx):
+    if QUOTES_SEALED:
+        await ctx.reply(SEALED_MESSAGE, mention_author=False)
+        return
     quotes = load_quotes()
     parsed = list(iter_parsed_quotes(quotes))
     if not parsed:
@@ -295,11 +411,16 @@ async def random_quote(ctx):
 
 
 @bot.command(name="topquoted")
-async def top_quoted(ctx, top_n: int = 10):
+async def top_quoted(ctx, top_n: int = 10, year: int = None):
+    if QUOTES_SEALED:
+        await ctx.reply(SEALED_MESSAGE, mention_author=False)
+        return
     quotes = load_quotes()
     names = load_names()
     counts = {}
     for q, quote_text, attribution_name, attribution_id in iter_parsed_quotes(quotes):
+        if year is not None and quote_datetime(q).year != year:
+            continue
         who = resolve_attribution(attribution_name, attribution_id, names, ctx.guild)
         counts[who] = counts.get(who, 0) + 1
     if not counts:
@@ -307,7 +428,8 @@ async def top_quoted(ctx, top_n: int = 10):
         return
     ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
     lines = [f"{idx}. {name} — {count} quote(s)" for idx, (name, count) in enumerate(ranked, start=1)]
-    await ctx.reply("**Most Quoted:**\n" + "\n".join(lines))
+    title = f"Most Quoted in {year}" if year else "Most Quoted"
+    await ctx.reply(f"**{title}:**\n" + "\n".join(lines))
 
 
 @bot.command(name="quotecard")
@@ -446,6 +568,8 @@ async def command_error(ctx, error):
         await ctx.reply("Couldn't find that member. Try mentioning them with @.")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.reply("Usage: `!setname @user Real Name`")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.reply("Usage: `!quotebook 2026`")
     else:
         raise error
 

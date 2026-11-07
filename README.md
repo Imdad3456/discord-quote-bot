@@ -171,6 +171,29 @@ Upstream references:
 - [LavaSrc sources and Spotify matching](https://github.com/topi314/LavaSrc)
 
 
+## Private quotes and year-end books
+
+Once a formatted quote is saved to `quotes.json` the bot deletes the Discord message
+and posts a short "Quote saved." notice that removes itself. That makes `quotes.json`
+the only copy, so keep its backups safe. Set `DELETE_RECORDED_QUOTES=false` to turn
+this off. Attachments on a quote are copied to `attachments/` beside `quotes.json`
+first. These messages are left in place, and a quote that stays gets the usual 🫃
+reaction:
+
+- Ordinary chat that isn't in the `"quote" - Name` format.
+- Anything the bot can't save or delete. It retries on the next `!sync` or restart.
+- When catching up after downtime, anything older than 7 days.
+
+Quotes are sealed by default. `!randomquote`, `!topquoted`, and Quote of the Day stay
+off for everyone, while the bot keeps collecting. Set `QUOTES_SEALED=false` to turn
+them back on, and `!topquoted 10 2026` then ranks a single year.
+
+Only the owner (`MOD_USER_ID`) can run `!quotebook`, and the book always arrives by
+DM. `!quotebook 2026` gives just that year, and it opens on `QUOTE_BOOK_OPENS`
+(December 31 by default). Plain `!quotebook` gives every year that is open, grouped
+by year. Years use `QUOTES_TIMEZONE`.
+
+
 ## Automatic GitHub deployment on the existing Steam Deck server
 
 The Deck checks the public `master` branch every two minutes. From your PC:
