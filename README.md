@@ -180,7 +180,9 @@ this off. Attachments on a quote are copied to `attachments/` beside `quotes.jso
 first. These messages are left in place, and a quote that stays gets the usual 🫃
 reaction:
 
-- Ordinary chat that isn't in the `"quote" - Name` format.
+- Ordinary chat that doesn't say who said it. Besides `"quote" - Name`, these count
+  as quotes, one per line: `quote - Name` with a capitalized name of up to 3 words,
+  `"quote" Name`, `quote @mention`, and `@mention quote` or `@Name quote`.
 - Anything the bot can't save or delete. It retries on the next `!sync` or restart.
 - When catching up after downtime, anything older than 7 days.
 

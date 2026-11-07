@@ -98,6 +98,14 @@ class DeleteAfterRecordTests(QuoteTestCase):
         message.delete.assert_not_awaited()
         self.assertEqual(self.saved_ids(), [1])
 
+    async def test_quote_without_marks_is_saved_then_deleted(self):
+        for message_id, content in ((1, 'the robot is on fire - Sam'), (2, '<@5> the robot is on fire')):
+            message = fake_message(message_id=message_id, content=content)
+            with patch.object(quote_bot, 'notify_unresolved', AsyncMock()):
+                await quote_bot.on_message(message)
+            message.delete.assert_awaited_once()
+        self.assertEqual(self.saved_ids(), [1, 2])
+
     async def test_attachment_is_copied_before_the_message_is_deleted(self):
         message = fake_message(attachments=['https://cdn.discordapp.com/a.png'])
         copy = self.file.parent / 'attachments' / '9-a.png.enc'

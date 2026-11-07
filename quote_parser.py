@@ -31,12 +31,60 @@ def _parse_attribution(attribution):
     return attribution.lstrip("@").strip(), None
 
 
+# For quotes typed without proper quote marks, one per line. Each shape needs a clear
+# sign of who said it, so ordinary chat in the channel isn't mistaken for a quote:
+#   <@id> quote / @Name: quote        the person first
+#   quote <@id> / quote - <@id>       a real mention last
+#   quote - Sam / "quote" Sam Lee     a dash or closing mark, then a capitalized name
+#                                     of up to 3 words
+LEADING_MENTION_RE = re.compile(r"^(?P<who><@!?\d+>)\s*[:,\-–—]?\s*(?P<quote>.+)$", re.DOTALL)
+LEADING_AT_NAME_RE = re.compile(r"^@(?P<who>[^\W\d_][\w.']{0,31})\s*[:,\-–—]?\s+(?P<quote>.+)$", re.DOTALL)
+TRAILING_MENTION_RE = re.compile(r"^(?P<quote>.+?)\s*[-–—]?\s*(?P<who><@!?\d+>)$", re.DOTALL)
+TRAILING_NAME_RE = re.compile(
+    r"^(?P<quote>.+?)(?:\s+[-–—]+|\s*[–—]+|[\"”])\s*@?(?P<who>[A-Z][\w.']*(?:\s+[A-Z][\w.']*){0,2})$",
+    re.DOTALL,
+)
+STRAY_MARKS = "\"“”‘’' "
+
+
+def _parse_unmarked_line(line):
+    if line.startswith("!"):
+        return None
+    for pattern in (LEADING_MENTION_RE, TRAILING_MENTION_RE, LEADING_AT_NAME_RE, TRAILING_NAME_RE):
+        match = pattern.match(line)
+        if not match:
+            continue
+        quote = match.group("quote").strip(STRAY_MARKS + ":-–—,")
+        if not any(character.isalpha() for character in MENTION_RE.sub("", quote)):
+            continue
+        name, user_id = _parse_attribution(match.group("who"))
+        return quote, name, user_id
+    return None
+
+
+def parse_unmarked_quotes(content):
+    """Quotes missing their quote marks, or with the person first. Only used when the
+    usual format finds nothing, so a correctly formatted quote reads the same as ever."""
+    results = []
+    for line in content.strip().splitlines():
+        parsed = _parse_unmarked_line(line.strip())
+        if parsed:
+            results.append(parsed)
+    return results
+
+
 def parse_quotes(content):
     """Extract every "quote" - Name / '''quote''' -@mention / "quote" <@id> unit from
-    content - a single message can contain more than one. Returns a list of
+    content - a single message can contain more than one. Falls back to quotes without
+    quote marks or with the person first. Returns a list of
     (quote_text, attribution_name_or_None, attribution_user_id_or_None)."""
     if not content:
         return []
+    results = _parse_marked_quotes(content)
+    return results or parse_unmarked_quotes(content)
+
+
+def _parse_marked_quotes(content):
     results = []
     for match in QUOTE_UNIT_RE.finditer(content.strip()):
         quote = match.group("quote").strip()
